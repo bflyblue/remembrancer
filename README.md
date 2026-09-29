@@ -49,6 +49,13 @@ Optional: two hooks in `~/.claude/settings.json`. The first briefs the agent at 
 
 In a project without `.remembrancer/`, `--hook` prints nothing.
 
+For the [pi](https://github.com/earendil-works/pi) agent, `integrations/pi/remembrancer.ts` does the same two things as an extension:
+
+```sh
+ln -s ~/devel/personal/remembrancer/integrations/pi/remembrancer.ts ~/.pi/agent/extensions/
+ln -s ~/devel/personal/remembrancer/skill ~/.pi/agent/skills/remembrancer
+```
+
 ## Use
 
 ```sh
