@@ -56,7 +56,16 @@ remembrancer brief           # what's next, open questions, rules, what needs at
 remembrancer next T          # next free ID (T, Q or R; an answer reuses its question's number)
 remembrancer lint            # broken links, bad fields, duplicate IDs, unresolved challenges…
 remembrancer serve [dirs…]   # web UI on http://127.0.0.1:4747 (several projects → a switcher)
+remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines (see below)
 ```
+
+### Serving from a headless machine
+
+By default the UI listens on 127.0.0.1 only. `--host ADDR` binds another address, such as `0.0.0.0`, a LAN IP or a Tailscale IP. Beyond loopback, every request needs an **access key**, because anyone who can edit `rules.md` can steer the agents that read it:
+
+- `serve` prints `http://<host>:<port>/?key=…`. Open it once per browser. It sets an HttpOnly, SameSite=Strict cookie and redirects to the plain URL.
+- The key comes from `REMEMBRANCER_KEY` if that's set. Otherwise it is generated once into `~/.config/remembrancer/key` (mode 600), so cookies keep working across restarts. Delete that file to revoke every browser.
+- It's plain HTTP, so use a network you trust (LAN, VPN) or skip `--host` and tunnel instead: `ssh -L 4747:127.0.0.1:4747 server`, then open http://127.0.0.1:4747.
 
 In the agent: `/remembrancer init | status | review | curate | stuck`, or just work. The skill records tasks, questions, answers and rule proposals as they come up.
 
@@ -73,7 +82,7 @@ In the agent: `/remembrancer init | status | review | curate | stuck`, or just w
   - lint problems
 - You can edit an entry in place (only that entry's text changes), mark a todo done, archive, delete, change a rule's status, or mark a rule reviewed.
 - If the agent changed a file after you loaded it, your write is refused rather than overwriting its change. The page reloads live when the files change on disk.
-- The server listens on 127.0.0.1 only. Writes need a per-run token, and pages are served with a strict CSP.
+- The server listens on 127.0.0.1 unless you pass `--host`, and then it requires the access key. Writes need a per-run token, and pages are served with a strict CSP.
 
 ## Develop
 

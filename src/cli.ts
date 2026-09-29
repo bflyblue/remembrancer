@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir, hostname } from "node:os";
+import { join, resolve } from "node:path";
 import { brief } from "./brief";
 import { init } from "./init";
 import { lint } from "./analyse";
 import { DIR, findRoot, loadProject, nextId } from "./project";
-import { serve } from "./server";
+import { isLoopback, serve } from "./server";
 import type { Kind } from "./model";
 
 const USAGE = `remembrancer: per-project working memory for you and your agent
@@ -15,9 +18,28 @@ usage:
   remembrancer next T|Q|R            print the next free ID
   remembrancer brief [--hook]        session-start summary (--hook: print nothing if no ${DIR}/)
   remembrancer lint                  check the files for broken IDs, fields and links
-  remembrancer serve [dir...] [--port N]
-                                     browse and curate in a local web UI (127.0.0.1 only)
+  remembrancer serve [dir...] [--port N] [--host ADDR]
+                                     browse and curate in a web UI (default 127.0.0.1:4747).
+                                     A non-loopback --host (e.g. 0.0.0.0) requires an access key:
+                                     REMEMBRANCER_KEY, or one saved in ~/.config/remembrancer/key
 `;
+
+// A stable key, so browser cookies survive restarts. REMEMBRANCER_KEY wins;
+// otherwise one is generated once into ~/.config/remembrancer/key (mode 600).
+async function accessKey(): Promise<string> {
+  if (process.env.REMEMBRANCER_KEY) return process.env.REMEMBRANCER_KEY;
+  const dir = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "remembrancer");
+  const path = join(dir, "key");
+  const file = Bun.file(path);
+  if (await file.exists()) {
+    const key = (await file.text()).trim();
+    if (key) return key;
+  }
+  const key = randomBytes(24).toString("base64url");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(path, key + "\n", { mode: 0o600 });
+  return key;
+}
 
 function requireRoot(): string {
   const root = findRoot();
@@ -66,9 +88,11 @@ async function main(argv: string[]) {
     }
     case "serve": {
       let port = 4747;
+      let host = "127.0.0.1";
       const dirs: string[] = [];
       for (let i = 0; i < args.length; i++) {
         if (args[i] === "--port") port = parseInt(args[++i], 10);
+        else if (args[i] === "--host") host = args[++i];
         else dirs.push(args[i]);
       }
       const roots = (dirs.length ? dirs : [process.cwd()]).map((d) => findRoot(resolve(d)) ?? resolve(d));
@@ -77,8 +101,14 @@ async function main(argv: string[]) {
         console.error(`no ${DIR}/ in: ${missing.join(", ")}`);
         process.exit(1);
       }
-      const server = serve([...new Set(roots)], port);
-      console.log(`remembrancer: http://127.0.0.1:${server.port}/`);
+      const key = isLoopback(host) ? undefined : await accessKey();
+      const server = serve([...new Set(roots)], port, { host, key });
+      const shown = host === "0.0.0.0" || host === "::" ? hostname() : host.includes(":") ? `[${host}]` : host;
+      console.log(`remembrancer: http://${shown}:${server.port}/${key ? `?key=${key}` : ""}`);
+      if (key) {
+        console.log(`listening on ${host}: open the URL above once per browser (it sets a cookie).`);
+        console.log(`plain HTTP: prefer a trusted network (LAN, VPN) or an SSH tunnel to 127.0.0.1.`);
+      }
       return;
     }
     case undefined:

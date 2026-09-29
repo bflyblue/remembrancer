@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { THRESHOLDS, attention, lint, openTodos } from "./analyse";
@@ -21,9 +22,9 @@ import styleCss from "./ui/style.css" with { type: "text" };
 
 const POLL_MS = 1000;
 
-// Everything is local, but entries may quote untrusted text: forbid inline
-// script, require a per-process token for writes, and reject foreign Hosts
-// (DNS rebinding).
+// Entries may quote untrusted text: forbid inline script and require a
+// per-process token for writes. On loopback, reject foreign Hosts (DNS
+// rebinding); beyond loopback, require the access key on every request.
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'";
 
 function signature(root: string): string {
@@ -63,7 +64,36 @@ async function projectData(root: string) {
   };
 }
 
-export function serve(roots: string[], port: number) {
+export interface ServeOptions {
+  host?: string;
+  // Required to reach the server at all. Set it whenever the server listens
+  // beyond loopback: anyone who can edit rules.md can steer the agents that read it.
+  key?: string;
+}
+
+const KEY_COOKIE = "rmb_key";
+
+export function isLoopback(host: string): boolean {
+  return /^(127\.\d+\.\d+\.\d+|::1|localhost)$/.test(host);
+}
+
+function sameSecret(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+function cookieKey(req: Request): string {
+  for (const part of (req.headers.get("cookie") ?? "").split(";")) {
+    const [name, ...value] = part.trim().split("=");
+    if (name === KEY_COOKIE) return decodeURIComponent(value.join("="));
+  }
+  return "";
+}
+
+export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
+  const hostname = opts.host ?? "127.0.0.1";
+  if (!isLoopback(hostname) && !opts.key) throw new Error(`listening on ${hostname} needs an access key`);
   const token = crypto.randomUUID();
   const subscribers = roots.map(() => new Set<ReadableStreamDefaultController>());
   const signatures = roots.map(signature);
@@ -86,13 +116,26 @@ export function serve(roots: string[], port: number) {
     new Response(body, { headers: { "content-type": type, "content-security-policy": CSP, "cache-control": "no-store" } });
 
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname,
     port,
     idleTimeout: 60,
     async fetch(req) {
       const url = new URL(req.url);
-      const host = req.headers.get("host") ?? "";
-      if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return new Response("bad host", { status: 403 });
+      if (opts.key) {
+        // The key cookie also stops DNS rebinding: a rebound origin never has it.
+        const given = url.searchParams.get("key");
+        if (given !== null && sameSecret(given, opts.key)) {
+          url.searchParams.delete("key");
+          const cookie = `${KEY_COOKIE}=${encodeURIComponent(opts.key)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`;
+          return new Response(null, { status: 303, headers: { location: url.pathname + url.search, "set-cookie": cookie } });
+        }
+        if (!sameSecret(cookieKey(req), opts.key)) {
+          return new Response("remembrancer: open the URL with ?key=… printed by `remembrancer serve`\n", { status: 401 });
+        }
+      } else {
+        const host = req.headers.get("host") ?? "";
+        if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return new Response("bad host", { status: 403 });
+      }
 
       if (url.pathname === "/") return page(indexHtml.replace("__TOKEN__", token), "text/html; charset=utf-8");
       if (url.pathname === "/app.js") return page(appJs, "text/javascript; charset=utf-8");

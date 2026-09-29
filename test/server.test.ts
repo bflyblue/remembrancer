@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,4 +61,32 @@ test("stale writes get 409 and leave the file alone; fresh writes land", async (
 test("file paths outside .remembrancer are refused", async () => {
   const res = await post({ op: "file", file: "../AGENTS.md", hash: "x", text: "pwned" });
   expect(res.status).toBe(404);
+});
+
+describe("beyond loopback", () => {
+  test("refuses to start without an access key", () => {
+    expect(() => serve([root], 0, { host: "0.0.0.0" })).toThrow(/access key/);
+  });
+
+  test("every request needs the key; ?key= sets a cookie that works from any Host", async () => {
+    const keyed = serve([root], 0, { host: "127.0.0.1", key: "s3cret-key" });
+    const url = `http://127.0.0.1:${keyed.port}`;
+    try {
+      for (const path of ["/", "/app.js", "/api/projects", "/api/p/0"]) {
+        expect((await fetch(url + path)).status).toBe(401);
+      }
+      expect((await fetch(`${url}/?key=wrong`)).status).toBe(401);
+      const login = await fetch(`${url}/?key=s3cret-key`, { redirect: "manual" });
+      expect(login.status).toBe(303);
+      expect(login.headers.get("location")).toBe("/");
+      const cookie = login.headers.get("set-cookie")!;
+      expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=Strict");
+      const headers = { cookie: cookie.split(";")[0], host: "myserver.lan:4747" };
+      expect((await fetch(`${url}/api/p/0`, { headers })).status).toBe(200);
+      expect((await fetch(`${url}/api/p/0`, { headers: { cookie: "rmb_key=nope" } })).status).toBe(401);
+    } finally {
+      keyed.stop(true);
+    }
+  });
 });
