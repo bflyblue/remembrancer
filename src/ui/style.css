@@ -54,11 +54,11 @@
 
 html, body { height: 100%; }
 
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
 body {
   height: 100dvh;
   margin: 0;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
   background: var(--bg);
   color: var(--ink);
   font: 14px/1.5 var(--sans);
@@ -189,8 +189,13 @@ button:disabled { opacity: .5; cursor: default; }
 .id { font-family: var(--mono); font-size: 12px; color: var(--accent); flex: none; }
 .age { margin-left: auto; font-size: 12px; color: var(--muted); }
 
+/* Whole-pixel line box: a fractional height lands each pill on a different sub-pixel,
+   which phones round differently row by row and again while scrolling. */
 .badge {
+  display: inline-block;
   font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
   padding: 0 6px;
   border-radius: 4px;
   border: 1px solid var(--line);
@@ -278,7 +283,7 @@ a.idlink.missing { color: var(--bad); text-decoration: line-through; }
 /* Phones: the list and the detail are two screens (body.detail-open picks one, see app.js),
    touch-sized targets, 16px form text so iOS does not zoom on focus, and the notch kept clear. */
 @media (max-width: 760px) {
-  body { font-size: 15px; }
+  body { font-size: 15px; line-height: 22px; }
   input, select, textarea, .editor textarea { font-size: 16px; }
 
   .bar {
