@@ -25,7 +25,7 @@ The files, with the exact format in [references/format.md](references/format.md)
 | `todo.md` | open tasks, with `priority: P1\|P2\|P3` and optional `after: T###` | T### |
 | `done.md` | finished tasks, newest first, with outcome and findings | same T### |
 | `questions.md` | open questions that must not block current work | Q### |
-| `answers.md` | resolved questions: answer, why, alternatives, `revisit-if` | A### = its Q number |
+| `answers.md` | resolved questions and decisions: answer, why, alternatives, `revisit-if` | A### = its Q number |
 | `rules.md` | laws for code, design, process and agent behaviour | R### |
 | `scratch.md` | this session's plan and notes, nothing longer-lived | none |
 | `archive/` | distilled old done entries (read-only history) | kept |
@@ -34,7 +34,9 @@ Entry shape: `## T012 · title`, then one metadata line `key: value · key: valu
 
 ## Getting IDs
 
-Run `remembrancer next T` (or `Q`, `R`). If the CLI is missing, take the highest number of that letter appearing anywhere in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
+Run `remembrancer next T --claim "title"` (or `Q`, `R`, or `A` for a decision no question asked for). It prints the ID and appends a stub entry under a lock, so no other agent gets the same number. Then fill in the stub. Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
+
+**Never delete an entry that has an ID**: its number would be handed out again. Drop a task to `done.md` with `dropped: yes`, close a question with an answer (even one that just says it was dropped), and retire a rule. Run `remembrancer lint` after editing; it reports duplicate IDs and numbers that no entry uses.
 
 ## When to act
 
@@ -42,9 +44,12 @@ Run `remembrancer next T` (or `Q`, `R`). If the CLI is missing, take the highest
 
 **While working.** Update the files as things happen, not in a batch at the end:
 - New work found that is not part of the current task → add a T entry with a priority. Add `after:` when order matters.
-- Something needs investigation but should not block you → add a Q entry with `context: T###`, say so in one line, and continue.
-- A task is finished → move its entry to the top of `done.md`, add `done:` and write the outcome. Record the findings that later tasks need (decisions, gotchas, where things live), and leave out narration.
+- Something needs investigation but should not block you → add a Q entry with `context: T###` (or the A### that raised it), say so in one line, and continue.
+- A task is finished → move its entry to the top of `done.md`, add `done:` and write the outcome. Record the findings that later tasks need (decisions, gotchas, where things live), and leave out narration. A task that is no longer wanted moves the same way with `dropped: yes` and the reason.
 - A question is resolved → write the A entry with the same number. Copy the question into **Question**, then write **Answer**, **Why**, **Alternatives considered**, and a `revisit-if:` condition that would make the answer worth revisiting. Delete the Q entry.
+  - The same decision settles other open questions too → list them in `closes:` on that answer and delete them as well.
+  - An answer settles only part of a question → split the question into narrower ones first. The answer that settles the last part closes it and lists the partial answers in `refs:`. Note progress on a question that stays open as a dated **History:** line citing the answer.
+  - A new answer changes an earlier one → `amends: A###` if both still stand; `supersedes: A###` (and `superseded-by:` on the old one) if the old one no longer does.
 - Before you answer a new question, search `answers.md` and the archive. If it was already settled, follow that answer or say why its `revisit-if` now applies.
 - Keep short plans and working notes in `scratch.md`.
 

@@ -417,12 +417,23 @@ function actions(e) {
     bar.append(h("label", { class: "inline" }, "status ", sel));
   }
   bar.append(h("span", { class: "spacer" }));
-  bar.append(
-    h("button", {
-      class: "danger",
-      onclick: () => confirm(`Delete ${e.id || "this entry"} from ${e.file}? This cannot be undone.`) && op({ op: "delete", ref }, `${e.id} deleted`),
-    }, "Delete"),
-  );
+  // An entry with an ID is never deleted, so its number is never reused: a todo is dropped instead.
+  if (e.file === "todo.md") {
+    bar.append(
+      h("button", {
+        class: "danger",
+        onclick: () => confirm(`Drop ${e.id}? It moves to done, marked dropped.`) && op({ op: "drop", ref }, `${e.id} dropped`),
+      }, "Drop"),
+    );
+  }
+  if (!e.id) {
+    bar.append(
+      h("button", {
+        class: "danger",
+        onclick: () => confirm(`Delete this entry from ${e.file}? This cannot be undone.`) && op({ op: "delete", ref }, "entry deleted"),
+      }, "Delete"),
+    );
+  }
   return bar;
 }
 

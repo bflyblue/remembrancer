@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { type Entry, daysSince, mentions } from "./model";
-import type { Project } from "./project";
+import { type Entry, type Kind, daysSince, mentions, padId } from "./model";
+import { type Project, usedNumbers } from "./project";
 
 export const THRESHOLDS = {
   todoDays: 30, // an open task this old is worth a second look
@@ -103,7 +103,18 @@ const ENUMS: Record<string, string[]> = {
 
 const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised"];
 
-export function lint(project: Project): Problem[] {
+// Keys whose values must be IDs of one kind; `same` means the entry's own kind.
+const LINK_KINDS: Record<string, string> = { closes: "Q", amends: "A", supersedes: "same", "superseded-by": "same" };
+
+// Where a stub goes to fill a gap in each sequence.
+const GAP_HINT: [kind: Kind, file: string, hint: string][] = [
+  ["T", "todo.md", "a todo was deleted or its number skipped: add a stub to done.md with `dropped: yes`"],
+  ["A", "answers.md", "a question was deleted or its number skipped: add a stub answer"],
+  ["R", "rules.md", "a rule was deleted or its number skipped: add a stub rule with `status: retired`"],
+];
+
+// With `ids`, only the checks on IDs and links (fast enough for a hook after every edit).
+export function lint(project: Project, { ids = false } = {}): Problem[] {
   const problems: Problem[] = [];
   const report = (e: Entry | { file: string; id: string | null }, message: string) =>
     problems.push({ file: e.file, id: e.id, message });
@@ -112,8 +123,15 @@ export function lint(project: Project): Problem[] {
     if (list.length > 1) report(list[0], `duplicate id ${id} in ${list.map((e) => e.file).join(", ")}`);
   }
 
-  const exists = (id: string) =>
-    project.byId.has(id) || (id[0] === "Q" && project.byId.has("A" + id.slice(1)));
+  // The answers that close each question: An closes Qn, plus its `closes:` list.
+  const closers = new Map<string, Entry[]>();
+  for (const a of project.entries) {
+    if (a.kind !== "A" || !a.id) continue;
+    for (const q of new Set(["Q" + a.id.slice(1), ...mentions(a.meta.closes ?? "")])) {
+      closers.set(q, [...(closers.get(q) ?? []), a]);
+    }
+  }
+  const exists = (id: string) => project.byId.has(id) || closers.has(id);
 
   for (const e of project.entries) {
     const base = e.file.startsWith("archive/") ? e.file.replace(/^archive\/(\w+)-\d{4}\.md$/, "$1.md") : e.file;
@@ -123,6 +141,24 @@ export function lint(project: Project): Problem[] {
     }
     const kind = EXPECTED_KIND[base];
     if (kind && e.kind !== kind) report(e, `${e.id} does not belong in ${e.file} (expected ${kind}###)`);
+    const text = e.raw.split("\n").slice(1).join("\n");
+    for (const ref of mentions(text)) {
+      if (ref !== e.id && !exists(ref)) report(e, `refers to ${ref}, which does not exist`);
+    }
+    for (const [key, want] of Object.entries(LINK_KINDS)) {
+      const expected = want === "same" ? e.kind : want;
+      for (const ref of mentions(e.meta[key] ?? "")) {
+        if (ref[0] !== expected) report(e, `${key}: ${ref} is not a ${expected} id`);
+      }
+    }
+    for (const target of mentions(e.meta.supersedes ?? "")) {
+      const old = project.byId.get(target)?.[0];
+      if (old && !mentions(old.meta["superseded-by"] ?? "").includes(e.id)) {
+        report(e, `supersedes ${target}, but ${target} has no "superseded-by: ${e.id}"`);
+      }
+      if (old && e.kind === "R" && old.meta.status !== "retired") report(e, `supersedes ${target}, but ${target} is not retired`);
+    }
+    if (ids) continue;
     for (const key of REQUIRED[base] ?? []) {
       if (!e.meta[key]) report(e, `missing "${key}:"`);
     }
@@ -132,29 +168,37 @@ export function lint(project: Project): Problem[] {
     for (const key of DATE_KEYS) {
       if (e.meta[key] && daysSince(e.meta[key]) === null) report(e, `${key}: "${e.meta[key]}" is not YYYY-MM-DD`);
     }
-    const text = e.raw.split("\n").slice(1).join("\n");
-    for (const ref of mentions(text)) {
-      if (ref !== e.id && !exists(ref)) report(e, `refers to ${ref}, which does not exist`);
-    }
     if (e.kind === "A" && !/\*\*Question\*\*/.test(e.body)) report(e, `answer has no **Question** section`);
   }
 
   for (const q of inFile(project, "questions.md")) {
-    if (q.id && project.byId.has("A" + q.id.slice(1))) report(q, `${q.id} is still open but A${q.id.slice(1)} answers it`);
+    const by = q.id ? closers.get(q.id) : undefined;
+    if (by) report(q, `${q.id} is still open but ${by.map((a) => a.id).join(" and ")} ${by.length > 1 ? "close" : "closes"} it`);
   }
+  // A question has one current answer; a superseded one no longer counts.
+  for (const [q, by] of closers) {
+    const current = by.filter((a) => !a.meta["superseded-by"]);
+    if (current.length > 1) report(current[1], `${q} is closed by both ${current[0].id} and ${current[1].id}`);
+  }
+
+  // Numbers are never freed, so every number up to the highest must still be in use.
+  for (const [kind, file, hint] of GAP_HINT) {
+    const used = usedNumbers(project, kind);
+    const max = Math.max(0, ...used);
+    for (let n = 1; n <= max; n++) {
+      if (used.has(n)) continue;
+      const from = n;
+      while (n < max && !used.has(n + 1)) n++;
+      report({ file, id: padId(kind, from) }, `no entry has number ${from === n ? n : `${from}–${n}`}; ${hint}`);
+    }
+  }
+  if (ids) return problems;
 
   const openQuestionText = inFile(project, "questions.md").map((q) => q.raw).join("\n");
   for (const r of inFile(project, "rules.md")) {
     if (r.meta["enforced-by"]) {
       const path = r.meta["enforced-by"].split(/[:\s]/)[0];
       if (path && !existsSync(join(project.root, path))) report(r, `enforced-by ${path} does not exist`);
-    }
-    for (const target of mentions(r.meta.supersedes ?? "")) {
-      const old = project.byId.get(target)?.[0];
-      if (old && !mentions(old.meta["superseded-by"] ?? "").includes(r.id!)) {
-        report(r, `supersedes ${target}, but ${target} has no "superseded-by: ${r.id}"`);
-      }
-      if (old && old.meta.status !== "retired") report(r, `supersedes ${target}, but ${target} is not retired`);
     }
     if (r.meta.status === "challenged" && !mentions(openQuestionText).includes(r.id!)) {
       report(r, `challenged, but no open question mentions ${r.id}`);

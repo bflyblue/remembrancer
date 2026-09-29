@@ -2,11 +2,11 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { brief } from "./brief";
 import { init } from "./init";
 import { lint } from "./analyse";
-import { DIR, findRoot, loadProject, nextId } from "./project";
+import { DIR, claimId, findRoot, loadProject, nextId } from "./project";
 import { qrTerminal } from "./qr";
 import { isLoopback, serve } from "./server";
 import type { Kind } from "./model";
@@ -16,9 +16,14 @@ const USAGE = `remembrancer: per-project working memory for you and your agent
 usage:
   remembrancer init [--local]        create ${DIR}/, exclude it from git, add the rules section
                                      to AGENTS.md (or CLAUDE.local.md with --local)
-  remembrancer next T|Q|R            print the next free ID
+  remembrancer next T|Q|A|R [--claim TITLE]
+                                     print the next free ID (Q and A share one sequence; A is for
+                                     a decision with no question). --claim also appends a stub
+                                     entry for it under a lock, so no one else gets the number
   remembrancer brief [--hook]        session-start summary (--hook: print nothing if no ${DIR}/)
-  remembrancer lint                  check the files for broken IDs, fields and links
+  remembrancer lint [--ids] [--hook] check the files for broken IDs, fields and links
+                                     (--ids: IDs and links only. --hook: read a PostToolUse call
+                                     on stdin, check only edits under ${DIR}/, exit 2 on problems)
   remembrancer serve [dir...] [--port N] [--host ADDR]
                                      browse and curate in a web UI (default 127.0.0.1:4747).
                                      A non-loopback --host (e.g. 0.0.0.0) requires an access key:
@@ -64,11 +69,14 @@ async function main(argv: string[]) {
     }
     case "next": {
       const kind = (args[0] ?? "").toUpperCase();
-      if (!["T", "Q", "R"].includes(kind)) {
-        console.error("usage: remembrancer next T|Q|R  (answers reuse their question's number)");
+      const claim = args.indexOf("--claim");
+      const title = claim >= 0 ? args.slice(claim + 1).join(" ").trim() : "";
+      if (!["T", "Q", "A", "R"].includes(kind) || (claim >= 0 && !title)) {
+        console.error("usage: remembrancer next T|Q|A|R [--claim TITLE]  (an answer to Qn is An: no new number)");
         process.exit(2);
       }
-      console.log(nextId(await loadProject(requireRoot()), kind as Kind));
+      const root = requireRoot();
+      console.log(claim >= 0 ? await claimId(root, kind as Kind, title) : nextId(await loadProject(root), kind as Kind));
       return;
     }
     case "brief": {
@@ -81,7 +89,23 @@ async function main(argv: string[]) {
       return;
     }
     case "lint": {
-      const problems = lint(await loadProject(requireRoot()));
+      if (flag("--hook")) {
+        // A PostToolUse hook: stdin holds the tool call. Only edits under .remembrancer/ matter,
+        // and exit code 2 shows the problems to the agent that made the edit.
+        let path = "";
+        try {
+          path = JSON.parse(await Bun.stdin.text()).tool_input?.file_path ?? "";
+        } catch {}
+        const root = path.split(sep).includes(DIR) ? findRoot(dirname(path)) : null;
+        if (!root) return;
+        const problems = lint(await loadProject(root), { ids: flag("--ids") });
+        if (problems.length) {
+          console.error(`remembrancer lint:\n${problems.map((p) => `${DIR}/${p.file}: ${p.id ?? "?"}: ${p.message}`).join("\n")}`);
+          process.exit(2);
+        }
+        return;
+      }
+      const problems = lint(await loadProject(requireRoot()), { ids: flag("--ids") });
       for (const p of problems) console.log(`${DIR}/${p.file}: ${p.id ?? "?"}: ${p.message}`);
       if (problems.length) process.exit(1);
       console.log("ok");

@@ -32,13 +32,16 @@ nix profile install ~/devel/personal/remembrancer
 ln -s ~/devel/personal/remembrancer/skill ~/.claude/skills/remembrancer
 ```
 
-Optional: brief the agent at the start of every session in a project that has `.remembrancer/`. To do this, add the following to `~/.claude/settings.json`:
+Optional: two hooks in `~/.claude/settings.json`. The first briefs the agent at the start of every session in a project that has `.remembrancer/`. The second checks IDs and links after every edit under `.remembrancer/`, and shows any problems to the agent that made the edit:
 
 ```json
 {
   "hooks": {
     "SessionStart": [
       { "hooks": [{ "type": "command", "command": "remembrancer brief --hook" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "remembrancer lint --ids --hook" }] }
     ]
   }
 }
@@ -53,8 +56,10 @@ remembrancer init            # create .remembrancer/, exclude it via .git/info/e
                              # add a "check the rules" section to AGENTS.md
 remembrancer init --local    # the same, but the section goes into CLAUDE.local.md (shared repos)
 remembrancer brief           # what's next, open questions, rules, what needs attention
-remembrancer next T          # next free ID (T, Q or R; an answer reuses its question's number)
-remembrancer lint            # broken links, bad fields, duplicate IDs, unresolved challenges…
+remembrancer next T          # next free ID (T, Q, A or R; an answer to Qn is An)
+remembrancer next Q --claim "title"  # take the next ID and append a stub for it, under a lock
+remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…
+remembrancer lint --ids      # IDs and links only (fast; `--hook` reads a PostToolUse call on stdin)
 remembrancer serve [dirs…]   # web UI on http://127.0.0.1:4747 (several projects → a switcher)
 remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines (see below)
 ```
@@ -80,7 +85,7 @@ In the agent: `/remembrancer init | status | review | curate | stuck`, or just w
   - rules not reviewed in the last 90 days
   - heuristics worth sharpening
   - lint problems
-- You can edit an entry in place (only that entry's text changes), mark a todo done, archive, delete, change a rule's status, or mark a rule reviewed.
+- You can edit an entry in place (only that entry's text changes), mark a todo done or drop it, archive, delete a malformed entry (never one with an ID), change a rule's status, or mark a rule reviewed.
 - If the agent changed a file after you loaded it, your write is refused rather than overwriting its change. The page reloads live when the files change on disk.
 - The server listens on 127.0.0.1 unless you pass `--host`, and then it requires the access key. Writes need a per-run token, and pages are served with a strict CSP.
 

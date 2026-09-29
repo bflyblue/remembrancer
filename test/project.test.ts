@@ -8,8 +8,11 @@ import { init } from "../src/init";
 import {
   ConflictError,
   DIR,
+  RefusedError,
   archiveEntry,
+  claimId,
   completeEntry,
+  deleteEntry,
   loadProject,
   nextId,
   readParsed,
@@ -52,7 +55,7 @@ describe("init", () => {
 });
 
 describe("nextId", () => {
-  test("counts archived ids and mentions; questions and answers share numbers", async () => {
+  test("counts archived headings; questions and answers share numbers", async () => {
     await write("todo.md", "# Todo\n\n## T003 · a\npriority: P1 · added: 2026-09-01\n");
     await write("archive/done-2025.md", "# Archive\n\n## T007 · old\ndone: 2025-01-01\n");
     await write("answers.md", "# Answers\n\n## A005 · x\nanswered: 2026-09-01\n\n**Question** ?\n");
@@ -61,6 +64,23 @@ describe("nextId", () => {
     expect(nextId(p, "T")).toBe("T008");
     expect(nextId(p, "Q")).toBe("Q006");
     expect(nextId(p, "R")).toBe("R001");
+  });
+
+  test("a mention in text never counts; a closes: value does", async () => {
+    await write("todo.md", "# Todo\n\n## T001 · a\npriority: P1 · added: 2026-09-01\n\nSee T999 and A999.\n");
+    await write("answers.md", "# Answers\n\n## A002 · x\nanswered: 2026-09-01 · closes: Q007\n\n**Question** ?\n");
+    const p = await loadProject(root);
+    expect(nextId(p, "T")).toBe("T002");
+    expect(nextId(p, "Q")).toBe("Q008");
+  });
+
+  test("concurrent claims get different numbers and each leaves a stub", async () => {
+    const ids = await Promise.all(["one", "two", "three"].map((t) => claimId(root, "Q", t)));
+    expect(new Set(ids).size).toBe(3);
+    const q = await readParsed(root, "questions.md");
+    expect(q.entries.map((e) => e.id).sort()).toEqual([...ids].sort());
+    expect(q.entries[0].meta.asked).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(lint(await loadProject(root), { ids: true })).toEqual([]);
   });
 });
 
@@ -92,6 +112,19 @@ describe("writes", () => {
     expect((await readParsed(root, "done.md")).entries).toHaveLength(0);
     expect((await readParsed(root, moved)).entries[0].id).toBe("T001");
   });
+
+  test("an entry with an ID is never deleted; a todo is dropped instead", async () => {
+    await write("todo.md", "# Todo\n\n## T001 · a\npriority: P1 · added: 2026-09-01\n\n## Stray heading\n");
+    let todo = await readParsed(root, "todo.md");
+    const ref = { file: "todo.md", hash: todo.hash, index: 0, id: "T001" };
+    await expect(deleteEntry(root, ref)).rejects.toBeInstanceOf(RefusedError);
+    await deleteEntry(root, { ...ref, index: 1, id: null });
+    todo = await readParsed(root, "todo.md");
+    expect(todo.entries.map((e) => e.id)).toEqual(["T001"]);
+
+    await completeEntry(root, { ...ref, hash: todo.hash }, { dropped: true });
+    expect((await readParsed(root, "done.md")).entries[0].meta.dropped).toBe("yes");
+  });
 });
 
 describe("lint", () => {
@@ -122,7 +155,7 @@ describe("lint", () => {
     expectAny(/null: heading "Bad heading"/);
     expectAny(/Q001 does not belong in todo.md/);
     expectAny(/refers to T404/);
-    expectAny(/Q002 is still open but A002 answers it/);
+    expectAny(/Q002 is still open but A002 closes it/);
     expectAny(/A002: answer has no \*\*Question\*\* section/);
     expectAny(/R002: supersedes R001, but R001 has no "superseded-by: R002"/);
     expectAny(/R002: supersedes R001, but R001 is not retired/);
@@ -130,6 +163,40 @@ describe("lint", () => {
     expectAny(/R003: challenged, but no open question/);
     expectAny(/R004: scope: "vibes"/);
     expectAny(/R004: missing "added:"/);
+  });
+
+  test("question and answer links: closes, closed twice, supersedes, gaps", async () => {
+    const answer = (id: string, meta = "") => `## ${id} · a\nanswered: 2026-09-01${meta}\n\n**Question** ?\n`;
+    await write("questions.md", "# Questions\n\n## Q005 · open but closed\nasked: 2026-09-01\n\n## Q009 · raised by an answer\nasked: 2026-09-01 · context: A004\n");
+    await write(
+      "answers.md",
+      "# Answers\n\n" +
+        [
+          answer("A001", " · closes: Q002, Q005"),
+          answer("A003", " · closes: Q002"),
+          answer("A004", " · closes: A001 · amends: Q003"),
+          answer("A006", " · superseded-by: A007 · closes: Q008"),
+          answer("A007", " · supersedes: A006 · closes: Q008"),
+          answer("A010", " · supersedes: A001"),
+        ].join("\n"),
+    );
+    await write("todo.md", "# Todo\n\n## T002 · b\nadded: 2026-09-01\n");
+    let messages = lint(await loadProject(root)).map((p) => `${p.id}: ${p.message}`);
+    const has = (re: RegExp) => messages.some((m) => re.test(m));
+    expect(has(/Q005: Q005 is still open but A001 closes it/)).toBe(true);
+    expect(has(/A003: Q002 is closed by both A001 and A003/)).toBe(true);
+    expect(has(/Q008 is closed by both/)).toBe(false); // A006 is superseded
+    expect(has(/A004: closes: A001 is not a Q id/)).toBe(true);
+    expect(has(/A004: amends: Q003 is not a A id/)).toBe(true);
+    expect(has(/A010: supersedes A001, but A001 has no "superseded-by: A010"/)).toBe(true);
+    expect(has(/refers to Q002/)).toBe(false); // closed by A001
+    expect(has(/T001: no entry has number 1/)).toBe(true);
+    expect(has(/Q\/A|number (2|5|8|9) /)).toBe(false); // covered by closes: or open
+    expect(has(/missing "priority:"/)).toBe(true);
+
+    messages = lint(await loadProject(root), { ids: true }).map((p) => `${p.id}: ${p.message}`);
+    expect(has(/missing "priority:"/)).toBe(false);
+    expect(has(/T001: no entry has number 1/)).toBe(true);
   });
 });
 

@@ -15,7 +15,9 @@ Body in markdown. Keep it short.
 - The metadata line comes directly after the heading. Keys are lowercase words with dashes, and pairs are separated by ` · `. Leave a key out when it has no value.
 - A `## ` line inside a fenced code block is not a heading.
 - IDs are a letter and at least three digits: `T001`, `Q014`, `A014`, `R003`. A 4th digit appears on its own after `999`.
-- IDs are never reused or renumbered. An answer takes its question's number: Q014 is answered by A014.
+- There are three number sequences: T, R, and Q and A together. An answer takes its question's number: Q014 is answered by A014. A decision that no question asked for takes a fresh number from the shared sequence.
+- The next ID is one more than the highest number among entry headings (archive included) and `closes:` values. Get it from `remembrancer next`. Mentions in text never count, so a typo can't skip numbers.
+- IDs are never reused or renumbered, so **an entry with an ID is never deleted**. A task is dropped to done.md (`dropped: yes`), a question leaves through an answer, and a rule is retired. `remembrancer lint` reports every number up to the highest that no entry uses. Fill a skipped number with a stub (for example `## A063 · Number unused`).
 - Any ID written anywhere (in a body or in metadata) is a link in the UI. `remembrancer lint` reports mentions of IDs that do not exist.
 - Dates are always `YYYY-MM-DD`.
 
@@ -41,6 +43,8 @@ Last page repeats the first item when total % pageSize == 0.
 
 Finished tasks, newest first. Keep the T ID and the original metadata, and add `done:`. The body records the **outcome** and any **findings** later tasks need. Leave out the story of how you got there.
 
+A task abandoned rather than finished moves here too, with `done:` (the date it left the list) and `dropped: yes`. The body says why.
+
 ```markdown
 ## T010 · Add cursor pagination to search
 done: 2026-09-28 · priority: P1 · added: 2026-09-20 · refs: A004, R003
@@ -58,7 +62,7 @@ Open questions that should not block the current work.
 | key | required | values |
 |---|---|---|
 | asked | yes | date |
-| context | no | the T ID or area it came from |
+| context | no | the T ID, the A ID that raised it, or the area it came from |
 | blocks | no | the T IDs that cannot finish until it is answered |
 
 ```markdown
@@ -68,7 +72,11 @@ asked: 2026-09-21 · context: T010
 Opaque is simpler for clients, but it hides the sort key from debugging.
 ```
 
-When a question is answered, **delete** it here and write the matching A entry.
+When a question is answered, **delete** it here and write the A entry that closes it. That is the only way a question leaves. A question abandoned as not worth answering still gets a short answer that says so.
+
+Progress that doesn't settle the question goes in its body as a dated line under **History:**, citing the answer (`- 2026-09-30: A088 settles the first half.`).
+
+When a question turns out to have separate parts, split it into narrower questions before answering them one by one.
 
 ## answers.md
 
@@ -76,9 +84,18 @@ When a question is answered, **delete** it here and write the matching A entry.
 |---|---|---|
 | answered | yes | date |
 | revisit-if | recommended | the condition that would make the answer worth reconsidering |
-| refs | no | related IDs |
+| closes | no | other Q IDs this answer settles (An closes Qn without saying so) |
+| amends | no | the A IDs this answer changes; both still stand |
+| supersedes | no | the A ID this answer replaces; the old one no longer stands |
+| superseded-by | no | on a replaced answer: the A ID that replaced it |
+| refs | no | related IDs, including partial answers to the same question |
 
 The body must contain **Question**, **Answer**, **Why** and **Alternatives considered**.
+
+Which answer closes a question:
+- Each question has exactly one current closing answer: An, or the answer that lists it in `closes:`. `remembrancer lint` reports a question closed by two answers, unless one is superseded.
+- One answer can close several questions: the answer takes one of their numbers and lists the rest in `closes:`.
+- When several answers settle parts of one question, the answer that settles the last part closes it and lists the earlier ones in `refs:`. A partial answer never uses `closes:`.
 
 ```markdown
 ## A004 · Opaque base64 cursors with a doc-id tiebreak

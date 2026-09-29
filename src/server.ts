@@ -7,6 +7,7 @@ import {
   DIR,
   type EntryRef,
   NotFoundError,
+  RefusedError,
   archiveEntry,
   completeEntry,
   deleteEntry,
@@ -191,6 +192,8 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
               return json({ ok: true, moved: await archiveEntry(root, ref) });
             case "complete":
               return json({ ok: true, moved: await completeEntry(root, ref) });
+            case "drop":
+              return json({ ok: true, moved: await completeEntry(root, ref, { dropped: true }) });
             case "file":
               await replaceFile(root, body.file ?? "", body.hash ?? "", body.text ?? "");
               break;
@@ -201,6 +204,7 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
         } catch (err) {
           if (err instanceof ConflictError) return json({ error: err.message, conflict: true }, 409);
           if (err instanceof NotFoundError) return json({ error: err.message }, 404);
+          if (err instanceof RefusedError) return json({ error: err.message }, 422);
           throw err;
         }
       }
