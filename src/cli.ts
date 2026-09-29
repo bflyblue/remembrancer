@@ -59,6 +59,11 @@ function requireRoot(): string {
 async function main(argv: string[]) {
   const [cmd, ...args] = argv;
   const flag = (name: string) => args.includes(name);
+  // `remembrancer <cmd> --help` shows the one usage page rather than running the command.
+  if (flag("--help") || flag("-h")) {
+    console.log(USAGE);
+    return;
+  }
   switch (cmd) {
     case "init": {
       const top = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { stderr: "ignore" });
