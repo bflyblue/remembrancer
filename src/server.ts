@@ -127,7 +127,14 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
         if (given !== null && sameSecret(given, opts.key)) {
           url.searchParams.delete("key");
           const cookie = `${KEY_COOKIE}=${encodeURIComponent(opts.key)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`;
-          return new Response(null, { status: 303, headers: { location: url.pathname + url.search, "set-cookie": cookie } });
+          // Not a redirect: a navigation that started in another app (a phone's QR scanner)
+          // stays cross-site through redirects, so Safari would drop the Strict cookie on the
+          // next request. A refresh from this page is a same-site navigation.
+          const target = (url.pathname + url.search).replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+          const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=${target}"><title>remembrancer</title><a href="${target}">Continue</a>\n`;
+          return new Response(html, {
+            headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CSP, "cache-control": "no-store", "set-cookie": cookie },
+          });
         }
         if (!sameSecret(cookieKey(req), opts.key)) {
           return new Response("remembrancer: open the URL with ?key=… printed by `remembrancer serve`\n", { status: 401 });

@@ -77,14 +77,17 @@ describe("beyond loopback", () => {
       }
       expect((await fetch(`${url}/?key=wrong`)).status).toBe(401);
       const login = await fetch(`${url}/?key=s3cret-key`, { redirect: "manual" });
-      expect(login.status).toBe(303);
-      expect(login.headers.get("location")).toBe("/");
+      expect(login.status).toBe(200); // a same-site refresh, not a redirect: see the comment in serve
+      expect(await login.text()).toContain(`http-equiv="refresh" content="0; url=/"`);
       const cookie = login.headers.get("set-cookie")!;
       expect(cookie).toContain("HttpOnly");
       expect(cookie).toContain("SameSite=Strict");
       const headers = { cookie: cookie.split(";")[0], host: "myserver.lan:4747" };
       expect((await fetch(`${url}/api/p/0`, { headers })).status).toBe(200);
       expect((await fetch(`${url}/api/p/0`, { headers: { cookie: "rmb_key=nope" } })).status).toBe(401);
+      const odd = await (await fetch(`${url}/?key=s3cret-key&x="><script>`)).text();
+      expect(odd).not.toContain("<script>");
+      expect(odd).not.toContain("s3cret-key");
     } finally {
       keyed.stop(true);
     }
