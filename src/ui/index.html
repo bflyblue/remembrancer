@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="token" content="__TOKEN__">
+  <title>Remembrancer</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">Remembrancer</div>
+    <select id="project" aria-label="Project"></select>
+    <input id="search" type="search" placeholder="Search everything  ( / )" autocomplete="off" spellcheck="false">
+    <button id="theme" class="ghost" title="Toggle light/dark">◐</button>
+  </header>
+  <nav id="tabs" class="tabs"></nav>
+  <main class="layout">
+    <section class="list-pane">
+      <div id="filters" class="filters"></div>
+      <ul id="list" class="list" tabindex="0"></ul>
+    </section>
+    <section id="detail" class="detail"></section>
+  </main>
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

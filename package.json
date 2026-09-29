@@ -1,0 +1,12 @@
+{
+  "name": "remembrancer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "remembrancer": "src/cli.ts" },
+  "scripts": {
+    "test": "bun test",
+    "build": "bun build --compile --minify src/cli.ts --outfile dist/remembrancer",
+    "serve": "bun src/cli.ts serve"
+  }
+}

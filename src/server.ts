@@ -1,0 +1,161 @@
+import { statSync } from "node:fs";
+import { join } from "node:path";
+import { THRESHOLDS, attention, lint, openTodos } from "./analyse";
+import {
+  ConflictError,
+  DIR,
+  type EntryRef,
+  NotFoundError,
+  archiveEntry,
+  completeEntry,
+  deleteEntry,
+  listFiles,
+  loadProject,
+  replaceEntry,
+  replaceFile,
+  setMeta,
+} from "./project";
+import appJs from "./ui/app.js" with { type: "text" };
+import indexHtml from "./ui/index.html" with { type: "text" };
+import styleCss from "./ui/style.css" with { type: "text" };
+
+const POLL_MS = 1000;
+
+// Everything is local, but entries may quote untrusted text: forbid inline
+// script, require a per-process token for writes, and reject foreign Hosts
+// (DNS rebinding).
+const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'";
+
+function signature(root: string): string {
+  return listFiles(root)
+    .map((rel) => {
+      const s = statSync(join(root, DIR, rel), { throwIfNoEntry: false });
+      return `${rel}:${s?.mtimeMs}:${s?.size}`;
+    })
+    .join("|");
+}
+
+async function projectData(root: string) {
+  const project = await loadProject(root);
+  const hashes = Object.fromEntries(project.files.map((f) => [f.path, f.hash]));
+  return {
+    name: project.name,
+    root,
+    thresholds: THRESHOLDS,
+    files: project.files.map((f) => ({ path: f.path, hash: f.hash, preamble: f.preamble, count: f.entries.length })),
+    scratch: project.files.find((f) => f.path === "scratch.md")?.text ?? "",
+    scratchHtml: Bun.markdown.html(project.files.find((f) => f.path === "scratch.md")?.text ?? ""),
+    entries: project.entries.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      title: e.title,
+      meta: e.meta,
+      body: e.body,
+      html: Bun.markdown.html(e.body),
+      raw: e.raw,
+      file: e.file,
+      index: e.index,
+      hash: hashes[e.file],
+    })),
+    todoOrder: openTodos(project).map((t) => ({ id: t.id, blockedBy: t.blockedBy })),
+    attention: attention(project),
+    problems: lint(project),
+  };
+}
+
+export function serve(roots: string[], port: number) {
+  const token = crypto.randomUUID();
+  const subscribers = roots.map(() => new Set<ReadableStreamDefaultController>());
+  const signatures = roots.map(signature);
+  const encoder = new TextEncoder();
+
+  setInterval(() => {
+    roots.forEach((root, i) => {
+      const sig = signature(root);
+      if (sig === signatures[i]) return;
+      signatures[i] = sig;
+      for (const c of subscribers[i]) c.enqueue(encoder.encode("data: change\n\n"));
+    });
+  }, POLL_MS);
+  setInterval(() => {
+    for (const set of subscribers) for (const c of set) c.enqueue(encoder.encode(": ping\n\n"));
+  }, 20_000);
+
+  const json = (data: unknown, status = 200) => Response.json(data, { status });
+  const page = (body: string, type: string) =>
+    new Response(body, { headers: { "content-type": type, "content-security-policy": CSP, "cache-control": "no-store" } });
+
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port,
+    idleTimeout: 60,
+    async fetch(req) {
+      const url = new URL(req.url);
+      const host = req.headers.get("host") ?? "";
+      if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return new Response("bad host", { status: 403 });
+
+      if (url.pathname === "/") return page(indexHtml.replace("__TOKEN__", token), "text/html; charset=utf-8");
+      if (url.pathname === "/app.js") return page(appJs, "text/javascript; charset=utf-8");
+      if (url.pathname === "/style.css") return page(styleCss, "text/css; charset=utf-8");
+      if (url.pathname === "/api/projects") return json(roots.map((root, i) => ({ i, name: root.split("/").pop(), root })));
+
+      const m = /^\/api\/p\/(\d+)(\/events|\/op)?$/.exec(url.pathname);
+      const i = m ? parseInt(m[1], 10) : -1;
+      const root = roots[i];
+      if (!m || !root) return json({ error: "not found" }, 404);
+
+      if (!m[2] && req.method === "GET") return json(await projectData(root));
+
+      if (m[2] === "/events") {
+        let ctrl: ReadableStreamDefaultController;
+        const stream = new ReadableStream({
+          start(c) {
+            ctrl = c;
+            subscribers[i].add(c);
+            c.enqueue(encoder.encode("retry: 2000\n\n"));
+          },
+          cancel() {
+            subscribers[i].delete(ctrl);
+          },
+        });
+        server.timeout(req, 0);
+        return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+      }
+
+      if (m[2] === "/op" && req.method === "POST") {
+        if (req.headers.get("x-token") !== token) return json({ error: "bad token" }, 403);
+        const body = (await req.json()) as { op: string; ref?: EntryRef; raw?: string; updates?: Record<string, string>; file?: string; hash?: string; text?: string };
+        try {
+          const ref = body.ref!;
+          switch (body.op) {
+            case "replace":
+              await replaceEntry(root, ref, body.raw ?? "");
+              break;
+            case "delete":
+              await deleteEntry(root, ref);
+              break;
+            case "meta":
+              await setMeta(root, ref, body.updates ?? {});
+              break;
+            case "archive":
+              return json({ ok: true, moved: await archiveEntry(root, ref) });
+            case "complete":
+              return json({ ok: true, moved: await completeEntry(root, ref) });
+            case "file":
+              await replaceFile(root, body.file ?? "", body.hash ?? "", body.text ?? "");
+              break;
+            default:
+              return json({ error: `unknown op ${body.op}` }, 400);
+          }
+          return json({ ok: true });
+        } catch (err) {
+          if (err instanceof ConflictError) return json({ error: err.message, conflict: true }, 409);
+          if (err instanceof NotFoundError) return json({ error: err.message }, 404);
+          throw err;
+        }
+      }
+      return json({ error: "not found" }, 404);
+    },
+  });
+  return server;
+}
