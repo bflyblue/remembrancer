@@ -7,6 +7,7 @@ import { brief } from "./brief";
 import { init } from "./init";
 import { lint } from "./analyse";
 import { DIR, findRoot, loadProject, nextId } from "./project";
+import { qrTerminal } from "./qr";
 import { isLoopback, serve } from "./server";
 import type { Kind } from "./model";
 
@@ -104,8 +105,11 @@ async function main(argv: string[]) {
       const key = isLoopback(host) ? undefined : await accessKey();
       const server = serve([...new Set(roots)], port, { host, key });
       const shown = host === "0.0.0.0" || host === "::" ? hostname() : host.includes(":") ? `[${host}]` : host;
-      console.log(`remembrancer: http://${shown}:${server.port}/${key ? `?key=${key}` : ""}`);
+      const url = `http://${shown}:${server.port}/${key ? `?key=${key}` : ""}`;
+      console.log(`remembrancer: ${url}`);
       if (key) {
+        // A phone can only reach a non-loopback server; skip the code when output is not a terminal.
+        if (process.stdout.isTTY) console.log(qrTerminal(url));
         console.log(`listening on ${host}: open the URL above once per browser (it sets a cookie).`);
         console.log(`plain HTTP: prefer a trusted network (LAN, VPN) or an SSH tunnel to 127.0.0.1.`);
       }

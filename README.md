@@ -63,7 +63,7 @@ remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines 
 
 By default the UI listens on 127.0.0.1 only. `--host ADDR` binds another address, such as `0.0.0.0`, a LAN IP or a Tailscale IP. Beyond loopback, every request needs an **access key**, because anyone who can edit `rules.md` can steer the agents that read it:
 
-- `serve` prints `http://<host>:<port>/?key=…`. Open it once per browser. It sets an HttpOnly, SameSite=Strict cookie and redirects to the plain URL.
+- `serve` prints `http://<host>:<port>/?key=…` and, in a terminal, a QR code of that link to scan with a phone. Open it once per browser. It sets an HttpOnly, SameSite=Strict cookie and redirects to the plain URL.
 - The key comes from `REMEMBRANCER_KEY` if that's set. Otherwise it is generated once into `~/.config/remembrancer/key` (mode 600), so cookies keep working across restarts. Delete that file to revoke every browser.
 - It's plain HTTP, so use a network you trust (LAN, VPN) or skip `--host` and tunnel instead: `ssh -L 4747:127.0.0.1:4747 server`, then open http://127.0.0.1:4747.
 
