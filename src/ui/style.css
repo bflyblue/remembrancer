@@ -103,7 +103,10 @@ button:disabled { opacity: .5; cursor: default; }
 }
 #search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 
+/* flex: none here and on .filters: a scrolling flex item may otherwise shrink below its
+   content, and a long list squashes the row above it. */
 .tabs {
+  flex: none;
   display: flex;
   gap: 2px;
   padding: 0 16px;
@@ -146,6 +149,7 @@ button:disabled { opacity: .5; cursor: default; }
   min-height: 0;
 }
 .filters {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
