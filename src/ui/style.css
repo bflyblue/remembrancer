@@ -55,7 +55,10 @@
 html, body { height: 100%; }
 
 body {
+  height: 100dvh;
   margin: 0;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background: var(--bg);
   color: var(--ink);
   font: 14px/1.5 var(--sans);
@@ -66,13 +69,16 @@ body {
 button, select, input, textarea { font: inherit; color: inherit; }
 
 button, select {
+  touch-action: manipulation;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
 }
-button:hover { border-color: var(--accent); }
+@media (hover: hover) {
+  button:hover { border-color: var(--accent); }
+  }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 button.danger { color: var(--bad); }
 button.ghost { border-color: transparent; background: transparent; }
@@ -135,6 +141,7 @@ button:disabled { opacity: .5; cursor: default; }
 .list-pane {
   border-right: 1px solid var(--line);
   display: flex;
+  min-width: 0;
   flex-direction: column;
   min-height: 0;
 }
@@ -155,6 +162,7 @@ button:disabled { opacity: .5; cursor: default; }
   margin: 0;
   padding: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   outline: none;
 }
 .list li {
@@ -197,7 +205,8 @@ button:disabled { opacity: .5; cursor: default; }
 .badge.tested { color: var(--ok); }
 .badge.blocked { font-style: italic; }
 
-.detail { overflow-y: auto; padding: 20px 28px 60px; min-width: 0; }
+.detail { overflow-y: auto; overscroll-behavior: contain; padding: 20px 28px 60px; min-width: 0; }
+.dnav { display: none; }
 .dhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .dhead h2 { margin: 0; font-size: 20px; font-weight: 600; }
 .dhead .id { font-size: 16px; }
@@ -266,10 +275,66 @@ a.idlink.missing { color: var(--bad); text-decoration: line-through; }
 .toast.error { background: var(--bad); color: #fff; }
 .toast.ok { background: var(--ok); color: #fff; }
 
+/* Phones: the list and the detail are two screens (body.detail-open picks one, see app.js),
+   touch-sized targets, 16px form text so iOS does not zoom on focus, and the notch kept clear. */
 @media (max-width: 760px) {
-  .layout { grid-template-columns: 1fr; grid-template-rows: minmax(200px, 40vh) 1fr; }
-  .list-pane { border-right: 0; border-bottom: 1px solid var(--line); }
-  .detail { padding: 16px; }
-  .bar { flex-wrap: wrap; }
+  body { font-size: 15px; }
+  input, select, textarea, .editor textarea { font-size: 16px; }
+
+  .bar {
+    gap: 8px;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
   .brand { display: none; }
+  #project { max-width: 40vw; min-height: 40px; }
+  #search { min-width: 0; max-width: none; min-height: 40px; }
+  #theme { min-width: 40px; min-height: 40px; }
+
+  .tabs { padding: 0 max(4px, env(safe-area-inset-left)); }
+  .tab { padding: 11px 10px; }
+
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .list-pane { border-right: 0; }
+  .detail { display: none; }
+  body.detail-open .list-pane { display: none; }
+  body.detail-open .detail { display: block; }
+
+  .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 8px 12px; }
+  .chipgroup { flex-wrap: nowrap; }
+  .chipgroup + .chipgroup { padding-left: 8px; border-left: 1px solid var(--line); }
+  .chip { font-size: 13px; padding: 6px 12px; white-space: nowrap; }
+
+  .list { padding-bottom: env(safe-area-inset-bottom); }
+  .list li { padding: 11px max(14px, env(safe-area-inset-right)) 11px max(14px, env(safe-area-inset-left)); }
+  .list li.group { padding: 6px 14px; }
+
+  .detail {
+    padding: 0 max(16px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  }
+  .dnav {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 calc(-1 * max(16px, env(safe-area-inset-right))) 8px calc(-1 * max(16px, env(safe-area-inset-left)));
+    padding: 4px 8px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  .back { color: var(--accent); min-height: 40px; padding: 4px 8px; }
+  .detail > .dhead:first-child, .detail > .placeholder:first-child { padding-top: 16px; }
+  .dhead h2 { font-size: 18px; }
+  .dhead .id { font-size: 15px; }
+  .keys { display: none; }
+
+  .actions button, .actions select { min-height: 40px; padding: 6px 14px; }
+  .md table { display: block; overflow-x: auto; }
+
+  .toast {
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    max-width: none;
+  }
 }

@@ -16,7 +16,10 @@ const TABS = [
   { key: "attention", label: "Attention", files: [] },
 ];
 
-const FORM_LABELS = { invariant: "invariants", property: "properties", heuristic: "heuristics" };
+// Below this width the list and the detail are two screens rather than two panes (see style.css).
+const NARROW = matchMedia("(max-width: 760px)");
+
+const FORM_LABELS ={ invariant: "invariants", property: "properties", heuristic: "heuristics" };
 
 const FILTERS = {
   todo: { priority: ["P1", "P2", "P3"] },
@@ -202,10 +205,22 @@ function select(e) {
   document.querySelector(".list .sel")?.scrollIntoView({ block: "nearest" });
 }
 
-function syncHash() {
+function syncHash(replace = false) {
   const e = selectedEntry();
   const next = `#/${state.p}/${state.tab}${e?.id ? "/" + e.id : ""}`;
-  if (location.hash !== next) history.pushState(null, "", next);
+  if (location.hash === next) return;
+  if (replace) history.replaceState(history.state, "", next);
+  else history.pushState({ app: true }, "", next);
+}
+
+// Back from the detail screen: a real history step when we pushed one, so the phone's
+// back gesture and this button agree; otherwise (opened from a link) just close it.
+function closeDetail() {
+  if (history.state?.app) return history.back();
+  state.selected = null;
+  state.editing = null;
+  syncHash(true);
+  render();
 }
 
 function readHash() {
@@ -414,7 +429,14 @@ function actions(e) {
 function startEdit(e) {
   state.editing = { key: keyOf(e), text: e.raw, entryId: e.id, file: e.file };
   render();
-  document.querySelector(".editor textarea")?.focus();
+  // On a phone, focusing would raise the keyboard over the text before it has been read.
+  if (!NARROW.matches) document.querySelector(".editor textarea")?.focus();
+}
+
+// Grow the edit box to its text, so wrapped lines on a narrow screen do not scroll inside it.
+function fitEditor() {
+  const ta = document.querySelector(".editor textarea");
+  if (ta && ta.scrollHeight > ta.clientHeight) ta.style.height = `${ta.scrollHeight + 2}px`;
 }
 
 function editor(e) {
@@ -436,7 +458,7 @@ function editor(e) {
     }
   });
   return h("div", { class: "editor" }, ta, h("div", { class: "actions" },
-    h("button", { class: "primary", onclick: save }, "Save  (Ctrl-S)"),
+    h("button", { class: "primary", onclick: save }, "Save", h("span", { class: "keys" }, "  (Ctrl-S)")),
     h("button", { onclick: () => { state.editing = null; render(); } }, "Cancel"),
     h("span", { class: "muted" }, "Raw markdown for this entry only. The rest of the file is untouched.")));
 }
@@ -470,6 +492,10 @@ function renderDetail() {
     pane.append(h("div", { class: "placeholder" }, overview()));
     return;
   }
+  const from = state.query ? "Results" : TABS.find((t) => t.key === state.tab).label;
+  pane.append(
+    h("div", { class: "dnav" }, h("button", { class: "ghost back", onclick: closeDetail }, `‹ ${from}`)),
+  );
   pane.append(
     h("div", { class: "dhead" },
       h("h2", {}, h("span", { class: "id" }, e.id || "?"), " ", e.title),
@@ -495,7 +521,7 @@ function overview() {
     h("p", { class: "muted" }, d.root),
     h("p", {}, `${count("todo.md")} todo · ${plural(count("questions.md"), "open question")} · ${plural(count("rules.md"), "rule")} · ${count("done.md")} done · ${plural(count("answers.md"), "answer")}`),
     h("p", {}, d.attention.length || d.problems.length ? `${d.attention.length + d.problems.length} items need attention.` : "Nothing needs attention."),
-    h("p", { class: "muted" }, "Keys: / search · j/k move · Enter open · e edit · Esc back"));
+    h("p", { class: "muted keys" }, "Keys: / search · j/k move · Enter open · e edit · Esc back"));
 }
 
 // ---------- chrome ----------
@@ -514,6 +540,9 @@ function renderTabs() {
       onclick: () => setTab(t.key),
     }, t.label, n !== undefined ? h("span", { class: "count" }, n) : null));
   }
+  // The tab strip scrolls sideways on phones; keep the current tab in view.
+  const on = nav.querySelector(".tab.on");
+  if (on) nav.scrollLeft = Math.max(0, Math.min(nav.scrollLeft, on.offsetLeft - 16), on.offsetLeft + on.offsetWidth + 16 - nav.clientWidth);
 }
 
 function setTab(key) {
@@ -537,10 +566,23 @@ function render() {
     }
   }
   document.title = `${state.data.name} · Remembrancer`;
+  const shown = state.tab === "scratch" && !state.query ? "scratch" : state.selected;
+  const ul = document.getElementById("list");
+  const listWasShown = ul.offsetParent !== null;
+  if (listWasShown) state.listScroll = ul.scrollTop;
+  document.body.classList.toggle("detail-open", !!(shown && (shown === "scratch" || selectedEntry())));
   renderTabs();
   renderFilters();
   renderList();
   renderDetail();
+  if (state.editing) fitEditor();
+  // Hiding the list (the detail screen on phones) drops its scroll position; put it back.
+  if (!listWasShown && ul.offsetParent !== null) ul.scrollTop = state.listScroll || 0;
+  // A different entry starts at its top, not wherever the last one was scrolled to.
+  if (shown !== state.shown) {
+    state.shown = shown;
+    document.getElementById("detail").scrollTop = 0;
+  }
 }
 
 function moveSelection(delta) {
@@ -582,6 +624,11 @@ async function main() {
   const search = document.getElementById("search");
   search.addEventListener("input", () => {
     state.query = search.value;
+    // On a phone an open entry covers the results; searching means going back to the list.
+    if (NARROW.matches && state.selected && !state.editing) {
+      state.selected = null;
+      syncHash(true);
+    }
     render();
   });
 
@@ -624,6 +671,9 @@ async function main() {
     sel.value = state.p;
     state.query = "";
     search.value = "";
+    // Back to a hash without an ID closes the entry; one with an ID reselects it via pendingId.
+    state.selected = null;
+    state.editing = null;
     load();
   });
 
