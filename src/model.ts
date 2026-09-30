@@ -3,7 +3,7 @@
 // Parsing never rewrites text: every entry keeps its exact byte span so
 // edits can splice one entry without touching the rest of the file.
 
-export type Kind = "T" | "Q" | "A" | "R";
+export type Kind = "T" | "Q" | "A" | "R" | "K";
 
 export interface Entry {
   id: string | null; // null when the heading does not parse as an ID
@@ -27,8 +27,8 @@ export interface ParsedFile {
   entries: Entry[];
 }
 
-export const ID_RE = /\b([TQAR])(\d{3,})\b/g;
-const HEADING_RE = /^## +([TQAR])(\d{3,})\s*(?:·|—|-|:)\s*(.*?)\s*$/;
+export const ID_RE = /\b([TQARK])(\d{3,})\b/g;
+const HEADING_RE = /^## +([TQARK])(\d{3,})\s*(?:·|—|-|:)\s*(.*?)\s*$/;
 const META_KEY_RE = /^([a-z][a-z-]*):\s*(.*)$/;
 const META_SEP = " · ";
 

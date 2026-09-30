@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { THRESHOLDS, attention, lint, openTodos } from "./analyse";
+import { linksIn, renderMarkdown, servedRoot } from "./links";
 import {
   ConflictError,
   DIR,
@@ -23,6 +24,13 @@ import styleCss from "./ui/style.css" with { type: "text" };
 
 const POLL_MS = 1000;
 
+// A linked file may be HTML or SVG from the repo: serve those sandboxed, so
+// they run no script with this origin's cookie and can't reach the write
+// token. Other types can't run script (nosniff), and a sandbox would stop
+// Chrome's PDF viewer.
+const FILE_CSP = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
+const ACTIVE = /html|svg|xml/i;
+
 // Entries may quote untrusted text: forbid inline script and require a
 // per-process token for writes. On loopback, reject foreign Hosts (DNS
 // rebinding); beyond loopback, require the access key on every request.
@@ -37,28 +45,36 @@ function signature(root: string): string {
     .join("|");
 }
 
-async function projectData(root: string) {
+async function projectData(root: string, top: string) {
   const project = await loadProject(root);
   const hashes = Object.fromEntries(project.files.map((f) => [f.path, f.hash]));
+  const scratch = project.files.find((f) => f.path === "scratch.md")?.text ?? "";
+  const scratchHtml = renderMarkdown(scratch);
   return {
     name: project.name,
     root,
     thresholds: THRESHOLDS,
     files: project.files.map((f) => ({ path: f.path, hash: f.hash, preamble: f.preamble, count: f.entries.length })),
-    scratch: project.files.find((f) => f.path === "scratch.md")?.text ?? "",
-    scratchHtml: Bun.markdown.html(project.files.find((f) => f.path === "scratch.md")?.text ?? ""),
-    entries: project.entries.map((e) => ({
-      id: e.id,
-      kind: e.kind,
-      title: e.title,
-      meta: e.meta,
-      body: e.body,
-      html: Bun.markdown.html(e.body),
-      raw: e.raw,
-      file: e.file,
-      index: e.index,
-      hash: hashes[e.file],
-    })),
+    scratch,
+    scratchHtml,
+    scratchLinks: linksIn(root, top, "scratch.md", scratchHtml),
+    entries: project.entries.map((e) => {
+      const html = renderMarkdown(e.body);
+      return {
+        id: e.id,
+        kind: e.kind,
+        title: e.title,
+        meta: e.meta,
+        body: e.body,
+        html,
+        // Links that name a file, as written → path for /file. Only these are served.
+        links: linksIn(root, top, e.file, html, e.kind === "K" ? e.meta.link : undefined),
+        raw: e.raw,
+        file: e.file,
+        index: e.index,
+        hash: hashes[e.file],
+      };
+    }),
     todoOrder: openTodos(project).map((t) => ({ id: t.id, blockedBy: t.blockedBy })),
     attention: attention(project),
     problems: lint(project),
@@ -98,6 +114,7 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
   const token = crypto.randomUUID();
   const subscribers = roots.map(() => new Set<ReadableStreamDefaultController>());
   const signatures = roots.map(signature);
+  const tops = roots.map(servedRoot);
   const encoder = new TextEncoder();
 
   setInterval(() => {
@@ -150,12 +167,23 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
       if (url.pathname === "/style.css") return page(styleCss, "text/css; charset=utf-8");
       if (url.pathname === "/api/projects") return json(roots.map((root, i) => ({ i, name: root.split("/").pop(), root })));
 
-      const m = /^\/api\/p\/(\d+)(\/events|\/op)?$/.exec(url.pathname);
+      const m = /^\/api\/p\/(\d+)(\/events|\/op|\/file)?$/.exec(url.pathname);
       const i = m ? parseInt(m[1], 10) : -1;
       const root = roots[i];
       if (!m || !root) return json({ error: "not found" }, 404);
 
-      if (!m[2] && req.method === "GET") return json(await projectData(root));
+      if (!m[2] && req.method === "GET") return json(await projectData(root, tops[i]));
+
+      if (m[2] === "/file" && (req.method === "GET" || req.method === "HEAD")) {
+        const path = url.searchParams.get("path") ?? "";
+        const data = await projectData(root, tops[i]);
+        const linked = [data.scratchLinks, ...data.entries.map((e) => e.links)].some((l) => Object.values(l).includes(path));
+        if (!linked) return json({ error: "no entry links to that file" }, 404);
+        const file = Bun.file(join(tops[i], path));
+        const headers: Record<string, string> = { "content-type": file.type, "x-content-type-options": "nosniff", "cache-control": "no-store" };
+        if (ACTIVE.test(file.type)) headers["content-security-policy"] = FILE_CSP;
+        return new Response(file, { headers });
+      }
 
       if (m[2] === "/events") {
         let ctrl: ReadableStreamDefaultController;

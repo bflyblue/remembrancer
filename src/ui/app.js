@@ -1,9 +1,9 @@
 "use strict";
 
 const TOKEN = document.querySelector('meta[name="token"]').content;
-const ID_RE = /\b([TQAR])(\d{3,})\b/g;
-const HAS_ID = /\b[TQAR]\d{3,}\b/;
-const DATE_KEY = { T: "added", Q: "asked", A: "answered", R: "reviewed" };
+const ID_RE = /\b([TQARK])(\d{3,})\b/g;
+const HAS_ID = /\b[TQARK]\d{3,}\b/;
+const DATE_KEY = { T: "added", Q: "asked", A: "answered", R: "reviewed", K: "added" };
 
 const TABS = [
   { key: "todo", label: "Todo", files: ["todo.md"] },
@@ -11,6 +11,7 @@ const TABS = [
   { key: "questions", label: "Questions", files: ["questions.md"] },
   { key: "answers", label: "Answers", files: ["answers.md"] },
   { key: "rules", label: "Rules", files: ["rules.md"] },
+  { key: "resources", label: "Resources", files: ["resources.md"] },
   { key: "scratch", label: "Scratch", files: [] },
   { key: "archive", label: "Archive", files: null },
   { key: "attention", label: "Attention", files: [] },
@@ -122,24 +123,92 @@ function linkify(root) {
 }
 
 function idLink(id) {
-  const target = resolveId(id);
-  return h(
-    "a",
-    {
-      class: `idlink ${target ? "" : "missing"}`,
-      href: "#",
-      title: target ? `${target.id} · ${target.title}` : `${id} does not exist`,
-      onclick: (ev) => {
-        ev.preventDefault();
-        if (target) select(target);
-      },
-    },
-    id,
-  );
+  const a = h("a", {}, id);
+  setIdLink(a, id);
+  return a;
 }
 
+const fileHref = (path) => `/api/p/${state.p}/file?path=${encodeURIComponent(path)}`;
+const external = { target: "_blank", rel: "noopener noreferrer" };
+const ID_ONLY = /^[TQARK]\d{3,}$/;
+
+// Where a resource's `link:` points: a web URL as is, or a file in the project
+// through the server (which serves only files that entries link to).
+function resourceHref(e, link) {
+  if (/^https?:\/\//i.test(link || "")) return link;
+  if (/^www\./i.test(link || "")) return `https://${link}`;
+  const path = e.links[link];
+  return path ? fileHref(path) : null;
+}
+
+// `plain`: the link text is ordinary words ([see](T012)), so it keeps the body font.
+function setIdLink(a, id, plain = false) {
+  const target = resolveId(id);
+  a.className = `${plain ? "idref" : "idlink"} ${target ? "" : "missing"}`;
+  a.href = "#";
+  a.title = target ? `${target.id} · ${target.title}` : `${id} does not exist`;
+  a.onclick = (ev) => {
+    ev.preventDefault();
+    if (target) select(target);
+  };
+}
+
+// Make rendered markdown's own links behave inside the app. `links` maps each
+// link as written to the project file it names (resolved by the server).
+// - [x](T012), or [T012](#): opens the entry
+// - [x](#heading): scrolls to that heading in this entry (the router owns the URL hash)
+// - a file in the project, as a link, image or `inline/path.ts`: served by /file, new tab
+// - http(s) and mailto: a new tab, so the app stays open
+// - anything else (a missing file, javascript:, file:// outside the project): inert, with a tooltip
+function fixLinks(root, links) {
+  // Heading ids get a prefix, so a "### Detail" can't clash with the app's own #detail.
+  for (const el of root.querySelectorAll("[id]")) el.id = `h-${el.id}`;
+  for (const a of root.querySelectorAll("a[href]")) {
+    const href = a.getAttribute("href");
+    const text = a.textContent.trim();
+    let anchor = href.slice(1);
+    try { anchor = decodeURIComponent(anchor); } catch {}
+    const heading = href.startsWith("#") && anchor && root.querySelector(`[id="${CSS.escape("h-" + anchor)}"]`);
+    if (ID_ONLY.test(href)) setIdLink(a, href, text !== href);
+    else if (href === "#" && ID_ONLY.test(text)) setIdLink(a, text);
+    else if (heading) {
+      a.onclick = (ev) => {
+        ev.preventDefault();
+        heading.scrollIntoView({ block: "start", behavior: "smooth" });
+      };
+    } else if (links[href]) Object.assign(a, { href: fileHref(links[href]), title: links[href], ...external });
+    else if (/^(https?|mailto):/i.test(href)) Object.assign(a, external);
+    else {
+      a.removeAttribute("href");
+      a.classList.add("broken");
+      a.title = href.startsWith("#")
+        ? `${href}: no such heading in this entry`
+        : /^[a-z][a-z0-9+.-]*:/i.test(href) && !/^file:/i.test(href)
+          ? `${href.split(":")[0]}: links are not followed`
+          : `${href}: no such file in the project`;
+    }
+  }
+  for (const img of root.querySelectorAll("img[src]")) {
+    const path = links[img.getAttribute("src")];
+    if (path) img.src = fileHref(path);
+  }
+  for (const code of root.querySelectorAll("code")) {
+    const path = !code.closest("a, pre") && links[code.textContent.trim()];
+    if (path) code.replaceWith(h("a", { class: "filelink", href: fileHref(path), title: path, ...external }, code.cloneNode(true)));
+  }
+  return linkify(root);
+}
+
+// Metadata values: web URLs and IDs become links.
 function linkifyText(text) {
-  return linkify(h("span", {}, text));
+  const span = h("span", {});
+  let last = 0;
+  for (const m of text.matchAll(/https?:\/\/[^\s,]+/g)) {
+    span.append(text.slice(last, m.index), h("a", { href: m[0], ...external }, m[0]));
+    last = m.index + m[0].length;
+  }
+  span.append(text.slice(last));
+  return linkify(span);
 }
 
 // ---------- data ----------
@@ -291,6 +360,10 @@ function badges(e) {
   if (m.priority) out.push(h("span", { class: `badge ${m.priority}` }, m.priority));
   if (m.status) out.push(h("span", { class: `badge st-${m.status}` }, m.status));
   if (m.form) out.push(h("span", { class: `badge form` }, m.form));
+  if (e.kind === "K" && m.link) {
+    const web = /^https?:\/\/([^/]+)/i.exec(m.link);
+    out.push(h("span", { class: "badge file", title: m.link }, web ? web[1].replace(/^www\./, "") : "file"));
+  }
   if (m["enforced-by"]) out.push(h("span", { class: "badge tested", title: m["enforced-by"] }, "tested"));
   const blocked = state.data.todoOrder.find((t) => t.id === e.id)?.blockedBy || [];
   if (e.file === "todo.md" && blocked.length) out.push(h("span", { class: "badge blocked" }, `after ${blocked.join(", ")}`));
@@ -365,7 +438,10 @@ function renderAttentionList(ul) {
 
 function metaTable(e) {
   const dl = h("dl", { class: "meta" });
-  for (const [k, v] of Object.entries(e.meta)) dl.append(h("dt", {}, k), h("dd", {}, linkifyText(v)));
+  for (const [k, v] of Object.entries(e.meta)) {
+    const href = k === "link" && e.kind === "K" ? resourceHref(e, v) : null;
+    dl.append(h("dt", {}, k), h("dd", {}, href ? h("a", { href, target: "_blank", rel: "noopener noreferrer" }, v) : linkifyText(v)));
+  }
   return dl;
 }
 
@@ -404,6 +480,8 @@ function supersedesChain(e) {
 function actions(e) {
   const bar = h("div", { class: "actions" });
   const ref = refOf(e);
+  const href = e.kind === "K" ? resourceHref(e, e.meta.link) : null;
+  if (href) bar.append(h("a", { class: "button primary", href, target: "_blank", rel: "noopener noreferrer" }, "Open resource ↗"));
   bar.append(h("button", { onclick: () => startEdit(e) }, "Edit"));
   if (e.file === "todo.md") bar.append(h("button", { onclick: () => op({ op: "complete", ref }, `${e.id} moved to done`) }, "Mark done"));
   if (e.file === "done.md") bar.append(h("button", { onclick: () => op({ op: "archive", ref }, (r) => `${e.id} archived to ${r.moved}`) }, "Archive"));
@@ -491,7 +569,7 @@ function renderScratch(pane) {
   pane.append(h("div", { class: "actions" }, h("button", {
     disabled: !file,
     onclick: () => { state.editing = { key: "scratch", text: state.data.scratch }; render(); },
-  }, "Edit")), linkify(body));
+  }, "Edit")), fixLinks(body, state.data.scratchLinks));
 }
 
 function renderDetail() {
@@ -519,7 +597,7 @@ function renderDetail() {
   pane.append(actions(e), metaTable(e));
   const body = h("article", { class: "md" });
   body.innerHTML = e.html;
-  pane.append(linkify(body));
+  pane.append(fixLinks(body, e.links));
   const related = [supersedesChain(e), backlinks(e)].filter(Boolean);
   pane.append(...related);
 }
@@ -530,7 +608,7 @@ function overview() {
   return h("div", {},
     h("h2", {}, d.name),
     h("p", { class: "muted" }, d.root),
-    h("p", {}, `${count("todo.md")} todo · ${plural(count("questions.md"), "open question")} · ${plural(count("rules.md"), "rule")} · ${count("done.md")} done · ${plural(count("answers.md"), "answer")}`),
+    h("p", {}, `${count("todo.md")} todo · ${plural(count("questions.md"), "open question")} · ${plural(count("rules.md"), "rule")} · ${count("done.md")} done · ${plural(count("answers.md"), "answer")} · ${plural(count("resources.md"), "resource")}`),
     h("p", {}, d.attention.length || d.problems.length ? `${d.attention.length + d.problems.length} items need attention.` : "Nothing needs attention."),
     h("p", { class: "muted keys" }, "Keys: / search · j/k move · Enter open · e edit · Esc back"));
 }

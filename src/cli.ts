@@ -4,9 +4,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { brief } from "./brief";
+import { guard } from "./guard";
 import { init } from "./init";
 import { lint } from "./analyse";
-import { DIR, claimId, findRoot, loadProject, nextId } from "./project";
+import { DIR, claimId, findRoot, loadProject, nextId, visibility } from "./project";
 import { qrTerminal } from "./qr";
 import { isLoopback, serve } from "./server";
 import type { Kind } from "./model";
@@ -16,14 +17,21 @@ const USAGE = `remembrancer: per-project working memory for you and your agent
 usage:
   remembrancer init [--local]        create ${DIR}/, exclude it from git, add the rules section
                                      to AGENTS.md (or CLAUDE.local.md with --local)
-  remembrancer next T|Q|A|R [--claim TITLE]
+  remembrancer next T|Q|A|R|K [--claim TITLE]
                                      print the next free ID (Q and A share one sequence; A is for
                                      a decision with no question). --claim also appends a stub
                                      entry for it under a lock, so no one else gets the number
-  remembrancer brief [--hook]        session-start summary (--hook: print nothing if no ${DIR}/)
+  remembrancer brief [--hook]        session-start summary, including whether git ignores ${DIR}/
+                                     (and so whether IDs may appear in commits). --hook: print
+                                     nothing if there is no ${DIR}/
   remembrancer lint [--ids] [--hook] check the files for broken IDs, fields and links
                                      (--ids: IDs and links only. --hook: read a PostToolUse call
                                      on stdin, check only edits under ${DIR}/, exit 2 on problems)
+  remembrancer guard [--hook | COMMAND...]
+                                     when git ignores ${DIR}/: refuse (exit 2) a git commit, git
+                                     tag or gh pr/issue command whose message, or whose staged
+                                     changes, would publish this project's IDs. --hook: read a
+                                     PreToolUse Bash call on stdin
   remembrancer serve [dir...] [--port N] [--host ADDR]
                                      browse and curate in a web UI (default 127.0.0.1:4747).
                                      A non-loopback --host (e.g. 0.0.0.0) requires an access key:
@@ -76,8 +84,8 @@ async function main(argv: string[]) {
       const kind = (args[0] ?? "").toUpperCase();
       const claim = args.indexOf("--claim");
       const title = claim >= 0 ? args.slice(claim + 1).join(" ").trim() : "";
-      if (!["T", "Q", "A", "R"].includes(kind) || (claim >= 0 && !title)) {
-        console.error("usage: remembrancer next T|Q|A|R [--claim TITLE]  (an answer to Qn is An: no new number)");
+      if (!["T", "Q", "A", "R", "K"].includes(kind) || (claim >= 0 && !title)) {
+        console.error("usage: remembrancer next T|Q|A|R|K [--claim TITLE]  (an answer to Qn is An: no new number)");
         process.exit(2);
       }
       const root = requireRoot();
@@ -90,7 +98,7 @@ async function main(argv: string[]) {
         if (flag("--hook")) return;
         requireRoot();
       }
-      console.log(brief(await loadProject(root!)));
+      console.log(brief(await loadProject(root!), new Date(), visibility(root!)));
       return;
     }
     case "lint": {
@@ -114,6 +122,23 @@ async function main(argv: string[]) {
       for (const p of problems) console.log(`${DIR}/${p.file}: ${p.id ?? "?"}: ${p.message}`);
       if (problems.length) process.exit(1);
       console.log("ok");
+      return;
+    }
+    case "guard": {
+      let command = args.filter((a) => a !== "--hook").join(" ");
+      let cwd = process.cwd();
+      if (flag("--hook")) {
+        try {
+          const call = JSON.parse(await Bun.stdin.text());
+          command = call.tool_input?.command ?? "";
+          cwd = call.cwd || cwd;
+        } catch {}
+      }
+      const reason = command ? await guard(command, cwd) : null;
+      if (reason) {
+        console.error(reason);
+        process.exit(2);
+      }
       return;
     }
     case "serve": {

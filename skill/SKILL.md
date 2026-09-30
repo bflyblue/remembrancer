@@ -3,15 +3,17 @@ name: remembrancer
 description: |
   Keeps a project's working memory in `.remembrancer/`: numbered todos (T###),
   done work with findings, open questions (Q###) and their answers (A###),
-  curated rules (R###) to check code and agent behaviour against, and a
-  per-session scratch file. Use at the start of every session in a project that
+  curated rules (R###) to check code and agent behaviour against, key
+  resources (K###) for the domain, and a per-session scratch file. Use at the start of every session in a project that
   has a `.remembrancer/` folder, and whenever a task is found, finished or
   blocked by an open question; when a bug's root cause, a repeated agent
-  mistake or a good pattern suggests a rule; before a review or commit (check
-  the change against the rules); and when stuck. Also use when the user says
+  mistake or a good pattern suggests a rule; when planning the next wave of
+  work; when a source (site, paper, spec, PDF) proves key to the domain;
+  before a review or commit (check the change against the rules); and when stuck. Also use when the user says
   "remembrancer", "add a todo", "what's next", "open question", "park that",
-  "make that a rule", "check the rules", "curate", or runs /remembrancer
-  (init | status | review | curate | stuck).
+  "make that a rule", "check the rules", "plan the next wave", "save that link",
+  "curate", or runs /remembrancer
+  (init | status | plan | review | curate | stuck).
 ---
 
 # Remembrancer
@@ -27,6 +29,7 @@ The files, with the exact format in [references/format.md](references/format.md)
 | `questions.md` | open questions that must not block current work | Q### |
 | `answers.md` | resolved questions and decisions: answer, why, alternatives, `revisit-if` | A### = its Q number |
 | `rules.md` | laws for code, design, process and agent behaviour | R### |
+| `resources.md` | key references for the domain: links, papers, specs, with `consult-when:` | K### |
 | `scratch.md` | this session's plan and notes, nothing longer-lived | none |
 | `archive/` | distilled old done entries (read-only history) | kept |
 
@@ -34,13 +37,15 @@ Entry shape: `## T012 · title`, then one metadata line `key: value · key: valu
 
 ## Getting IDs
 
-Run `remembrancer next T --claim "title"` (or `Q`, `R`, or `A` for a decision no question asked for). It prints the ID and appends a stub entry under a lock, so no other agent gets the same number. Then fill in the stub. Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
+Run `remembrancer next T --claim "title"` (or `Q`, `R`, `K`, or `A` for a decision no question asked for). It prints the ID and appends a stub entry under a lock, so no other agent gets the same number. Then fill in the stub. Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
 
-**Never delete an entry that has an ID**: its number would be handed out again. Drop a task to `done.md` with `dropped: yes`, close a question with an answer (even one that just says it was dropped), and retire a rule. Run `remembrancer lint` after editing; it reports duplicate IDs and numbers that no entry uses.
+**Never delete an entry that has an ID**: its number would be handed out again. Drop a task to `done.md` with `dropped: yes`, close a question with an answer (even one that just says it was dropped), retire a rule, and turn an unwanted resource into a stub that says why it was dropped. Run `remembrancer lint` after editing; it reports duplicate IDs and numbers that no entry uses.
+
+**IDs outside `.remembrancer/`.** The brief's second line says whether git ignores the folder. If it does (the default after `init`, used on shared repos), nobody reading the history can resolve an ID, so never write T/Q/A/R/K IDs in commit messages, PR descriptions, code, comments, docs or any other file outside `.remembrancer/`. Say what the ID stands for in words ("keep cursors stable under ties", not "R003"). Report rule IDs to the user in chat as usual. If the folder is committed, cite IDs in commits and PRs where they help. Without the brief, run `git check-ignore -q .remembrancer` (exit 0 means ignored). The commit guard hook (`remembrancer guard`) refuses a commit, tag or PR command that breaks this and names the IDs: rewrite them in words and retry, never work around it.
 
 ## When to act
 
-**Session start.** Run `remembrancer brief` (or read todo, questions and rules). Tell the user in two or three lines what is next and anything that needs attention. If `scratch.md` holds an old session, move anything durable into todo, questions, answers or rules, then reset scratch to its header and a `# Session YYYY-MM-DD` heading.
+**Session start.** Run `remembrancer brief` (or read todo, questions, rules and the `consult-when` lines of resources). Tell the user in two or three lines what is next and anything that needs attention. If `scratch.md` holds an old session, move anything durable into todo, questions, answers or rules, then reset scratch to its header and a `# Session YYYY-MM-DD` heading.
 
 **While working.** Update the files as things happen, not in a batch at the end:
 - New work found that is not part of the current task → add a T entry with a priority. Add `after:` when order matters.
@@ -52,6 +57,18 @@ Run `remembrancer next T --claim "title"` (or `Q`, `R`, or `A` for a decision no
   - A new answer changes an earlier one → `amends: A###` if both still stand; `supersedes: A###` (and `superseded-by:` on the old one) if the old one no longer does.
 - Before you answer a new question, search `answers.md` and the archive. If it was already settled, follow that answer or say why its `revisit-if` now applies.
 - Keep short plans and working notes in `scratch.md`.
+- A source proves key to the domain, or is what finally cracked a hard question → add a K entry: `link:` (URL, or a path relative to the project root), `consult-when:` (the areas or kinds of question it helps with, specific enough to match against a task), and a body with a line on what it is and **Takeaways:** (the facts that mattered). Only add sources you'd want to return to, not every page you opened. Link it from the tasks, answers and rules it informed (`refs: K004`).
+- Before non-trivial work, and before answering a hard question, check the resources whose `consult-when` matches. Read the takeaways first, and open the source only when they don't cover what you need. Add new takeaways when you do open it. Skip this for trivial changes.
+
+**Planning the next wave.** When the user asks what to do next, or a session starts with several related tasks ready:
+- A plan that fits in this session → write it in `scratch.md`: the tasks in order, and what "done" looks like.
+- A wave that may outlast the session (a few hours of related work) → keep it in `todo.md` so it survives the reset of scratch:
+  1. Pick 2–6 related tasks that together reach one goal. Add the missing ones as T entries. Split any task that won't fit in about an hour.
+  2. Order them with `after:` wherever one really depends on another.
+  3. Claim a plan task: `## T030 · Plan: <goal>`, `priority: P1`, with `after:` listing every task in the wave. Its body says the goal, the order, and what "done" means for the wave. The children need no extra field: the UI shows the plan among their backlinks.
+  4. Tell the user the plan in a few lines and let them adjust it before you start.
+- Work the children in order and complete each one as usual. When all are done, move the plan to `done.md` with an outcome for the whole wave. If the wave stops partway, take the unfinished children out of the plan's `after:` (they stay in todo), and close the plan with what was reached.
+- Keep one active plan at a time. A new wave starts from a fresh plan task; do not stretch the old one.
 
 **Rules: the part that matters most.** Rules are how the project stops repeating mistakes. Keep the set small and sharp.
 - A new rule can come from a bug's root cause, a mistake you (or other agents) keep repeating, a pattern that clearly works, or an investigation's result. Add it as `status: proposed` with `source:` (the T, Q or A IDs that led to it). Tell the user, and never make it `active` yourself.
@@ -74,8 +91,9 @@ Run `remembrancer next T --claim "title"` (or `Q`, `R`, or `A` for a decision no
 
 ## Commands (`/remembrancer <cmd>`)
 
-- `init`: run `remembrancer init` (add `--local` for shared repos, so the rules pointer goes into `CLAUDE.local.md`). Without the CLI, copy `templates/*.md` into `.remembrancer/`, add `/.remembrancer/` to `.git/info/exclude`, and add a short section to `AGENTS.md` telling agents to check `.remembrancer/rules.md` before review and commit.
+- `init`: run `remembrancer init` (add `--local` for shared repos, so the rules pointer goes into `CLAUDE.local.md`). To commit `.remembrancer/` with the code (personal projects), remove its line from `.git/info/exclude` afterwards. Without the CLI, copy `templates/*.md` into `.remembrancer/`, add `/.remembrancer/` to `.git/info/exclude`, and add a short section to `AGENTS.md` telling agents to check `.remembrancer/rules.md` before review and commit.
 - `status`: the session-start summary, plus `remembrancer lint` problems.
+- `plan`: the planning procedure above, for the next wave of work.
 - `review`: the before-commit check above, run against the staged or working diff.
 - `curate`: for each done entry older than about 30 days, move any lasting knowledge into an answer or a proposed rule, then archive it (`archive/done-YYYY.md`). Also flag stale todos and questions, proposed rules awaiting a decision, and rules not reviewed in 90 days. Propose the changes to the user and let them decide.
 - `stuck`: the procedure above.
@@ -84,6 +102,6 @@ Run `remembrancer next T --claim "title"` (or `Q`, `R`, or `A` for a decision no
 
 - Titles are short and specific. Bodies are a few lines. The files are for scanning, not prose.
 - Always write dates as `YYYY-MM-DD`.
-- Reference other entries by ID (`T012`, `R003`) so the UI and the user can follow the links.
+- Inside `.remembrancer/`, reference other entries by ID (`T012`, `R003`) so the UI and the user can follow the links. Outside it, follow the rule on IDs above.
 - Do not duplicate: update the existing entry instead of adding a near-copy.
 - Run `remembrancer lint` after bulk edits if the CLI is available.

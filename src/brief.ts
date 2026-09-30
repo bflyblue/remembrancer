@@ -5,6 +5,7 @@ import type { Project } from "./project";
 const MAX_TODOS = 8;
 const MAX_QUESTIONS = 6;
 const MAX_RULES = 15;
+const MAX_RESOURCES = 10;
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -14,14 +15,22 @@ function more(total: number, shown: number): string[] {
   return total > shown ? [`  … ${total - shown} more`] : [];
 }
 
+const VISIBILITY = {
+  private:
+    "git ignores .remembrancer/, so its IDs mean nothing outside it: never write T/Q/A/R/K IDs in commit messages, PRs, code, comments or other files. Describe the task, rule or decision in words instead.",
+  committed: ".remembrancer/ is committed with the code: cite IDs in commit messages and PRs where they help.",
+};
+
 // A short plain-text summary for the start of a session (and SessionStart hooks).
-export function brief(project: Project, now = new Date()): string {
+// `visibility` comes from project.visibility (git state, kept out of here so tests stay pure).
+export function brief(project: Project, now = new Date(), visibility: "private" | "committed" | null = null): string {
   const todos = openTodos(project);
   const questions = inFile(project, "questions.md");
   const rules = inFile(project, "rules.md").filter((r) => r.meta.status === "active" || r.meta.status === "challenged");
   const lines: string[] = [
     `Remembrancer · ${project.name} · ${todos.length} todo · ${plural(questions.length, "open question")} · ${plural(rules.length, "rule")} (.remembrancer/)`,
   ];
+  if (visibility) lines.push(VISIBILITY[visibility]);
 
   if (todos.length) {
     lines.push("", "Next up:");
@@ -50,6 +59,16 @@ export function brief(project: Project, now = new Date()): string {
       lines.push(`  ${r.id} ${r.title}${tags ? `  [${tags}]` : ""}`);
     }
     lines.push(...more(rules.length, MAX_RULES));
+  }
+
+  const resources = inFile(project, "resources.md");
+  if (resources.length) {
+    lines.push("", "Resources (read the matching ones before non-trivial work on that area):");
+    for (const k of resources.slice(0, MAX_RESOURCES)) {
+      const when = k.meta["consult-when"];
+      lines.push(`  ${k.id} ${k.title}${when ? `  (when: ${when})` : ""}`);
+    }
+    lines.push(...more(resources.length, MAX_RESOURCES));
   }
 
   const counts = new Map<string, number>();

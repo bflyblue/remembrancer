@@ -84,6 +84,7 @@ const REQUIRED: Record<string, string[]> = {
   "questions.md": ["asked"],
   "answers.md": ["answered"],
   "rules.md": ["scope", "form", "status", "added"],
+  "resources.md": ["link", "consult-when", "added"],
 };
 
 const EXPECTED_KIND: Record<string, string> = {
@@ -92,6 +93,7 @@ const EXPECTED_KIND: Record<string, string> = {
   "questions.md": "Q",
   "answers.md": "A",
   "rules.md": "R",
+  "resources.md": "K",
 };
 
 const ENUMS: Record<string, string[]> = {
@@ -111,6 +113,7 @@ const GAP_HINT: [kind: Kind, file: string, hint: string][] = [
   ["T", "todo.md", "a todo was deleted or its number skipped: add a stub to done.md with `dropped: yes`"],
   ["A", "answers.md", "a question was deleted or its number skipped: add a stub answer"],
   ["R", "rules.md", "a rule was deleted or its number skipped: add a stub rule with `status: retired`"],
+  ["K", "resources.md", "a resource was deleted or its number skipped: add a stub that says it was dropped"],
 ];
 
 // With `ids`, only the checks on IDs and links (fast enough for a hook after every edit).
@@ -203,6 +206,10 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
     if (r.meta.status === "challenged" && !mentions(openQuestionText).includes(r.id!)) {
       report(r, `challenged, but no open question mentions ${r.id}`);
     }
+  }
+  for (const k of inFile(project, "resources.md")) {
+    const link = k.meta.link ?? "";
+    if (link && !/^([a-z][a-z0-9+.-]*:|www\.)/i.test(link) && !existsSync(join(project.root, link))) report(k, `link ${link} does not exist`);
   }
   return problems;
 }

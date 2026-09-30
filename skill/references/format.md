@@ -14,12 +14,13 @@ Body in markdown. Keep it short.
 - The heading is `## `, the ID, ` · ` (a middle dot with spaces), then the title. The parser also accepts `-`, `—` or `:` as the separator. When you write a heading, use `·`.
 - The metadata line comes directly after the heading. Keys are lowercase words with dashes, and pairs are separated by ` · `. Leave a key out when it has no value.
 - A `## ` line inside a fenced code block is not a heading.
-- IDs are a letter and at least three digits: `T001`, `Q014`, `A014`, `R003`. A 4th digit appears on its own after `999`.
-- There are three number sequences: T, R, and Q and A together. An answer takes its question's number: Q014 is answered by A014. A decision that no question asked for takes a fresh number from the shared sequence.
+- IDs are a letter and at least three digits: `T001`, `Q014`, `A014`, `R003`, `K002`. A 4th digit appears on its own after `999`.
+- There are four number sequences: T, R, K, and Q and A together. An answer takes its question's number: Q014 is answered by A014. A decision that no question asked for takes a fresh number from the shared sequence.
 - The next ID is one more than the highest number among entry headings (archive included) and `closes:` values. Get it from `remembrancer next`. Mentions in text never count, so a typo can't skip numbers.
-- IDs are never reused or renumbered, so **an entry with an ID is never deleted**. A task is dropped to done.md (`dropped: yes`), a question leaves through an answer, and a rule is retired. `remembrancer lint` reports every number up to the highest that no entry uses. Fill a skipped number with a stub (for example `## A063 · Number unused`).
+- IDs are never reused or renumbered, so **an entry with an ID is never deleted**. A task is dropped to done.md (`dropped: yes`), a question leaves through an answer, a rule is retired, and an unwanted resource becomes a stub that says why. `remembrancer lint` reports every number up to the highest that no entry uses. Fill a skipped number with a stub (for example `## A063 · Number unused`).
 - Any ID written anywhere (in a body or in metadata) is a link in the UI. `remembrancer lint` reports mentions of IDs that do not exist.
 - Dates are always `YYYY-MM-DD`.
+- Cite files as a path relative to the project root, in backticks (`src/search/cursor.ts`) or as a markdown link. The UI opens a path that exists, and a markdown link to a missing file shows as broken. Web links are plain `https://…` URLs or markdown links. Write IDs as bare text (`T012`), not as link targets.
 
 ## todo.md
 
@@ -165,9 +166,33 @@ Challenging and replacing a rule:
 - When the rule is revised in place, bump `revised:` and add a dated line under **History:**.
 - When the rule is replaced, mark the old one `status: retired · superseded-by: R012`, and give the new one `supersedes: R003`.
 
+## resources.md
+
+Key references for the project's domain: sites, papers, specs, PDFs, the thread that explained a hard problem. They are few and curated, like rules: a source earns an entry when later work will want it again.
+
+| key | required | values |
+|---|---|---|
+| link | yes | a URL, or a path relative to the project root (`docs/spec.pdf`, `.remembrancer/files/x.pdf`). `remembrancer lint` checks that a path exists |
+| consult-when | yes | the areas, tasks or kinds of question it helps with, specific enough to match against a task |
+| added | yes | date |
+| refs | no | related IDs |
+
+The body has one line on what the source is, then **Takeaways:**, the facts that mattered, so an agent can usually skip re-reading the source.
+
+```markdown
+## K002 · Raft paper (Ongaro & Ousterhout, 2014)
+link: https://raft.github.io/raft.pdf · consult-when: leader election, log replication, the membership-change questions · added: 2026-09-12 · refs: A011
+
+The consensus algorithm our replication follows.
+
+**Takeaways:** a leader only commits entries from its own term (section 5.4.2). Joint consensus is needed for membership changes of more than one node at a time.
+```
+
+A file kept only in `.remembrancer/` is not shared when git ignores that folder. On a shared repo, prefer a URL or a file the repo already tracks.
+
 ## scratch.md
 
-Free-form notes for one session, under a `# Session YYYY-MM-DD` heading. At the start of the next session, move anything worth keeping into the other files, then reset scratch.
+Free-form notes and the plan for one session, under a `# Session YYYY-MM-DD` heading. A plan that may outlast the session goes in todo.md instead, as a `Plan: <goal>` task whose `after:` lists the tasks in the wave. At the start of the next session, move anything worth keeping into the other files, then reset scratch.
 
 ## archive/
 

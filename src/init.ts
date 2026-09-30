@@ -5,6 +5,7 @@ import { DIR, FILES } from "./project";
 import answers from "../skill/templates/answers.md" with { type: "text" };
 import done from "../skill/templates/done.md" with { type: "text" };
 import questions from "../skill/templates/questions.md" with { type: "text" };
+import resources from "../skill/templates/resources.md" with { type: "text" };
 import rules from "../skill/templates/rules.md" with { type: "text" };
 import scratch from "../skill/templates/scratch.md" with { type: "text" };
 import todo from "../skill/templates/todo.md" with { type: "text" };
@@ -15,6 +16,7 @@ export const TEMPLATES: Record<(typeof FILES)[number], string> = {
   "questions.md": questions,
   "answers.md": answers,
   "rules.md": rules,
+  "resources.md": resources,
   "scratch.md": scratch,
 };
 
@@ -26,6 +28,7 @@ This project keeps its working memory in \`.remembrancer/\` (use the remembrance
 tasks, done work, open questions, answers and rules.
 Before reviewing code or committing, check the change against the active rules in
 \`.remembrancer/rules.md\`, run any \`enforced-by\` checks, and cite the rule IDs (R###) that apply.
+If git ignores \`.remembrancer/\`, keep its IDs out of commits, PRs, code and comments.
 `;
 
 async function gitDir(root: string): Promise<string | null> {

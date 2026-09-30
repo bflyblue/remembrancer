@@ -17,6 +17,7 @@ import {
   nextId,
   readParsed,
   replaceEntry,
+  visibility,
 } from "../src/project";
 
 let root: string;
@@ -36,7 +37,7 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 describe("init", () => {
   test("creates files, excludes the dir from git, adds the AGENTS.md section, and is idempotent", async () => {
     const project = await loadProject(root);
-    expect(project.files.map((f) => f.path)).toEqual(["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "scratch.md"]);
+    expect(project.files.map((f) => f.path)).toEqual(["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "resources.md", "scratch.md"]);
     const exclude = await Bun.file(join(root, ".git", "info", "exclude")).text();
     expect(exclude).toContain("/.remembrancer/");
     const agents = await Bun.file(join(root, "AGENTS.md")).text();
@@ -200,7 +201,46 @@ describe("lint", () => {
   });
 });
 
+describe("resources", () => {
+  test("K has its own sequence, and lint checks fields and local links", async () => {
+    expect(await claimId(root, "K", "Raft paper")).toBe("K001");
+    await write(
+      "resources.md",
+      "# Resources\n\n## K001 · Raft paper\nlink: https://raft.github.io/raft.pdf · consult-when: leader election · added: 2026-09-01\n\n## K002 · Local spec\nlink: docs/spec.pdf · consult-when: wire format · added: 2026-09-01 · refs: K001\n\n## K003 · Stub\nadded: 2026-09-01\n",
+    );
+    const project = await loadProject(root);
+    expect(nextId(project, "K")).toBe("K004");
+    const messages = lint(project).map((p) => `${p.id}: ${p.message}`);
+    expect(messages).toContain("K002: link docs/spec.pdf does not exist");
+    expect(messages).toContain('K003: missing "link:"');
+    expect(messages.some((m) => m.startsWith("K001"))).toBe(false);
+  });
+});
+
+describe("visibility", () => {
+  test("private while git ignores the dir, committed once it doesn't, null outside git", async () => {
+    expect(visibility(root)).toBe("private");
+    await Bun.write(join(root, ".git", "info", "exclude"), "");
+    expect(visibility(root)).toBe("committed");
+    const bare = mkdtempSync(join(tmpdir(), "remembrancer-nogit-"));
+    try {
+      expect(visibility(bare)).toBeNull();
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("brief", () => {
+  test("says whether IDs may leave .remembrancer/, and lists resources with when to read them", async () => {
+    await write("resources.md", "# Resources\n\n## K001 · Raft paper\nlink: https://raft.github.io/raft.pdf · consult-when: leader election · added: 2026-09-01\n");
+    const project = await loadProject(root);
+    expect(brief(project, new Date(), "private")).toContain("never write T/Q/A/R/K IDs in commit messages");
+    expect(brief(project, new Date(), "committed")).toContain("cite IDs in commit messages");
+    expect(brief(project)).not.toContain("commit");
+    expect(brief(project)).toContain("K001 Raft paper  (when: leader election)");
+  });
+
   test("orders todos by priority and dependency, and lists rules", async () => {
     await write(
       "todo.md",

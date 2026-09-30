@@ -68,7 +68,7 @@ body {
 
 button, select, input, textarea { font: inherit; color: inherit; }
 
-button, select {
+button, select, a.button {
   touch-action: manipulation;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -77,9 +77,10 @@ button, select {
   cursor: pointer;
 }
 @media (hover: hover) {
-  button:hover { border-color: var(--accent); }
+  button:hover, a.button:hover { border-color: var(--accent); }
   }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+a.button { display: inline-block; text-decoration: none; }
+button.primary, a.button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); }
 button.danger { color: var(--bad); }
 button.ghost { border-color: transparent; background: transparent; }
 button:disabled { opacity: .5; cursor: default; }
@@ -251,6 +252,10 @@ label.inline { display: inline-flex; gap: 6px; align-items: center; color: var(-
 a { color: var(--accent); }
 a.idlink { font-family: var(--mono); font-size: .92em; text-decoration: none; border-bottom: 1px dotted currentColor; }
 a.idlink.missing { color: var(--bad); text-decoration: line-through; }
+a.idref.missing { color: var(--bad); text-decoration: line-through; }
+a.broken { color: var(--bad); text-decoration: underline dotted; cursor: help; }
+a.filelink { text-decoration: none; }
+a.filelink code { border-bottom: 1px dotted currentColor; }
 
 .related { margin-top: 24px; max-width: 80ch; }
 .related h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
@@ -337,7 +342,7 @@ a.idlink.missing { color: var(--bad); text-decoration: line-through; }
   .dhead .id { font-size: 15px; }
   .keys { display: none; }
 
-  .actions button, .actions select { min-height: 40px; padding: 6px 14px; }
+  .actions button, .actions select, .actions a.button { min-height: 40px; padding: 6px 14px; }
   .md table { display: block; overflow-x: auto; }
 
   .toast {

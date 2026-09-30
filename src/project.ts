@@ -16,7 +16,7 @@ import {
 } from "./model";
 
 export const DIR = ".remembrancer";
-export const FILES = ["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "scratch.md"] as const;
+export const FILES = ["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "resources.md", "scratch.md"] as const;
 
 export interface Project {
   root: string;
@@ -34,6 +34,15 @@ export function findRoot(start = process.cwd()): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+// Whether .remembrancer/ goes into commits. "private": git ignores it (the
+// default after init), so its IDs mean nothing to anyone reading the history.
+// "committed": tracked, or not ignored and so picked up by the next `git add`.
+// null: not in a git repository.
+export function visibility(root: string): "private" | "committed" | null {
+  const proc = Bun.spawnSync(["git", "check-ignore", "-q", DIR], { cwd: root, stderr: "ignore" });
+  return proc.exitCode === 0 ? "private" : proc.exitCode === 1 ? "committed" : null;
 }
 
 export function listFiles(root: string): string[] {
@@ -92,6 +101,7 @@ const CLAIM: Record<Kind, [file: string, meta: string]> = {
   Q: ["questions.md", "asked: "],
   A: ["answers.md", "answered: "],
   R: ["rules.md", "status: proposed · added: "],
+  K: ["resources.md", "added: "],
 };
 
 // Allocate the next ID and append a stub entry for it, under the lock, so two

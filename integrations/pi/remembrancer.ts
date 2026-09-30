@@ -1,7 +1,9 @@
-// Remembrancer for the pi coding agent: the same two hooks as for Claude Code.
+// Remembrancer for the pi coding agent: the same three hooks as for Claude Code.
 // - Session start: the `remembrancer brief` is added to the context before the first prompt.
 // - After an edit or write under .remembrancer/: `remembrancer lint --ids` runs, and any
 //   problems are appended to that tool's result so the agent sees them.
+// - Before a bash call: `remembrancer guard` blocks a commit, tag or PR command that would
+//   publish IDs from a .remembrancer/ that git ignores.
 // Install: symlink this file into ~/.pi/agent/extensions/ and the skill/ directory
 // into ~/.pi/agent/skills/remembrancer. Needs `remembrancer` on PATH (or REMEMBRANCER_BIN).
 // @ts-nocheck
@@ -13,10 +15,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const BIN = process.env.REMEMBRANCER_BIN || "remembrancer";
 const DIR = ".remembrancer";
 
-function run(args: string[], cwd: string): Promise<{ code: number; stdout: string }> {
+function run(args: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((done) => {
-    execFile(BIN, args, { cwd, timeout: 10_000 }, (err, stdout) => {
-      done({ code: err ? (typeof err.code === "number" ? err.code : -1) : 0, stdout: String(stdout ?? "") });
+    execFile(BIN, args, { cwd, timeout: 10_000 }, (err, stdout, stderr) => {
+      done({ code: err ? (typeof err.code === "number" ? err.code : -1) : 0, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
     });
   });
 }
@@ -35,6 +37,14 @@ export default function remembrancer(pi: ExtensionAPI) {
     const { code, stdout } = await run(["brief", "--hook"], ctx.cwd);
     if (code !== 0 || !stdout.trim()) return;
     return { message: { customType: "remembrancer-brief", content: stdout.trim(), display: false } };
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    const command = event.toolName === "bash" ? event.input?.command : undefined;
+    if (typeof command !== "string" || !/\b(git|gh)\b/.test(command)) return;
+    // Exit 2 means refused; any other failure (no CLI, a crash) lets the call through.
+    const { code, stderr } = await run(["guard", command], ctx.cwd);
+    if (code === 2) return { block: true, reason: stderr.trim() };
   });
 
   pi.on("tool_result", async (event, ctx) => {

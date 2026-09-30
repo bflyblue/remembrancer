@@ -63,6 +63,41 @@ test("file paths outside .remembrancer are refused", async () => {
   expect(res.status).toBe(404);
 });
 
+test("resolves links that name project files, and serves only those, sandboxed", async () => {
+  await Bun.write(join(root, "docs", "paper.pdf"), "%PDF-1.4 fake");
+  await Bun.write(join(root, "src", "foo.ts"), "export {};\n");
+  await Bun.write(join(root, ".env"), "SECRET=1");
+  await Bun.write(join(root, "unlinked.txt"), "nobody links here");
+  await Bun.write(join(root, "page.html"), "<script>alert(1)</script>");
+  await Bun.write(
+    join(root, DIR, "resources.md"),
+    "# Resources\n\n## K001 · Paper\nlink: ./docs/paper.pdf · consult-when: x · added: 2026-09-01\n\n" +
+      "Also [spec](src/foo.ts), [up](../docs/paper.pdf), `src/foo.ts`, [rules](rules.md), [env](.env), [gone](nope.md), [web](https://x.dev), [page](page.html).\n",
+  );
+  const data = await (await fetch(`${base}/api/p/0`)).json();
+  const k = data.entries.find((e: any) => e.id === "K001");
+  expect(k.links).toEqual({
+    "./docs/paper.pdf": "docs/paper.pdf",
+    "src/foo.ts": "src/foo.ts", // the markdown link and the inline code
+    "../docs/paper.pdf": "docs/paper.pdf", // relative to .remembrancer/, as markdown means it
+    "rules.md": `${DIR}/rules.md`,
+    "page.html": "page.html",
+  });
+  const page = await fetch(`${base}/api/p/0/file?path=page.html`);
+  expect(page.headers.get("content-security-policy")).toContain("sandbox");
+  expect(k.html).toContain('<a href="https://x.dev">');
+  const res = await fetch(`${base}/api/p/0/file?path=docs/paper.pdf`);
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toContain("application/pdf");
+  expect(res.headers.get("content-security-policy")).toBeNull(); // a sandbox stops Chrome's PDF viewer
+  expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(await res.text()).toBe("%PDF-1.4 fake");
+  expect((await fetch(`${base}/api/p/0/file?path=${DIR}/rules.md`)).status).toBe(200);
+  for (const path of [".env", "unlinked.txt", "../outside.txt", "nope.md"]) {
+    expect((await fetch(`${base}/api/p/0/file?path=${encodeURIComponent(path)}`)).status).toBe(404);
+  }
+});
+
 describe("beyond loopback", () => {
   test("refuses to start without an access key", () => {
     expect(() => serve([root], 0, { host: "0.0.0.0" })).toThrow(/access key/);
