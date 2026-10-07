@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Packet } from "./curate";
-import { LOG, type Proposals, readProposals } from "./proposals";
+import { LOG, type Proposals, actionIds, readProposals } from "./proposals";
 import { DIR, NotFoundError, type Project, RefusedError } from "./project";
 
 export const QUEUE = "proposals";
@@ -66,12 +66,12 @@ export async function showQueued(root: string, project: Project, name: string): 
   const title = (id: string) => project.byId.get(id.toUpperCase())?.[0]?.title ?? "(no entry)";
   const groups = new Map<string, string[]>();
   p.actions.forEach((a, i) => {
-    const subject = (a.id ?? a.from ?? a.members?.[0] ?? "").toUpperCase();
+    const ids = actionIds(a);
+    const subject = ids[0] ?? "";
     const c = caseOf.get(subject);
     const head = c ? `${c.case} (${c.kind}): ${c.evidence.slice(0, 120)}` : "(no case)";
-    const ids = [a.id, a.from, ...(a.members ?? [])].filter((x): x is string => !!x);
     const detail =
-      a.action === "cluster" ? `cluster "${a.label}"` : a.action === "link" ? `link ${a.rel} ${a.to} ${title(a.to!)}` : a.action === "retag" ? `retag +${(a.add ?? []).join(",")} -${(a.remove ?? []).join(",")}` : a.action === "flag" ? `flag: ${a.note}` : a.action;
+      a.action === "cluster" ? `cluster "${a.label}"` : a.action === "condense" ? `condense into ${a.into!.kind} "${a.into!.title}" (${a.dest ?? "active"})` : a.action === "link" ? `link ${a.rel} ${a.to} ${title(a.to!)}` : a.action === "retag" ? `retag +${(a.add ?? []).join(",")} -${(a.remove ?? []).join(",")}` : a.action === "flag" ? `flag: ${a.note}` : a.action;
     const lines = [`  ${i + 1}. ${detail}  (${a.why})`, ...ids.map((id) => `       ${id} ${title(id)}`)];
     groups.set(head, [...(groups.get(head) ?? []), ...lines]);
   });

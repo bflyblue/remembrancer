@@ -353,6 +353,11 @@ export class Changes {
     this.remove(id);
   }
 
+  // A new entry at the top of `rel` (started with `header` if new).
+  prepend(rel: string, raw: string, header: string) {
+    this.texts.set(rel, prependEntry(this.text(rel) || header, raw));
+  }
+
   // The entry as this change has it so far.
   get(id: string): Entry {
     return this.current(id).entry;
@@ -539,13 +544,14 @@ function titleOf(project: Project, id: string): string | null {
   return answer ? answer.title : null;
 }
 
-// Where a chain of `superseded-by:` leads from `e`, or null when it leads
+// Where a chain of `superseded-by:` (and `condensed-into:`) leads from `e`, or null when it leads
 // nowhere. A cycle stops at the last entry before it repeats.
 export function currentOf(project: Project, e: Entry): string | null {
   const seen = new Set([e.id]);
   let at = e;
   for (;;) {
-    const next = mentions(at.meta["superseded-by"] ?? "")[0];
+    // A superseding entry first, else the theme an entry was condensed into.
+    const next = mentions(at.meta["superseded-by"] ?? "")[0] ?? mentions(at.meta["condensed-into"] ?? "")[0];
     const entry = next ? project.byId.get(next)?.[0] : undefined;
     if (!entry || seen.has(next)) break;
     seen.add(next);

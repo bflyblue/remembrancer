@@ -4,7 +4,7 @@
 // how much their member sets overlap; and every action is dry-run alone.
 import { join } from "node:path";
 import { type Packet, callCurator, packetProblems } from "./curate";
-import { type Action, type Proposals, applyProposals, parseProposals } from "./proposals";
+import { type Action, type Proposals, actionIds, applyProposals, parseProposals } from "./proposals";
 import { RefusedError } from "./project";
 
 export interface Score {
@@ -20,7 +20,8 @@ export interface Score {
 
 // What an action is, for matching: its kind and the set of IDs it names.
 export function actionKey(a: Action): string {
-  const ids = [a.id, a.from, a.to, ...(a.members ?? [])].filter((x): x is string => !!x).map((x) => x.toUpperCase());
+  // A condense matches on its sources alone: its new text is not compared.
+  const ids = [...actionIds(a), ...(a.to ? [a.to.toUpperCase()] : [])];
   return `${a.action} ${[...new Set(ids)].sort().join(",")}`;
 }
 
@@ -66,7 +67,7 @@ export function score(curator: string, gold: Action[], predicted: Action[], pack
     ? round(goldClusters.reduce((s, g) => s + Math.max(0, ...predClusters.map((p) => jaccard(g, p))), 0) / goldClusters.length)
     : null;
   // A case is left alone when no action names any of its entries.
-  const touches = (actions: Action[], ids: Set<string>) => actions.some((a) => [a.id, a.from, ...(a.members ?? [])].some((x) => x && ids.has(x.toUpperCase())));
+  const touches = (actions: Action[], ids: Set<string>) => actions.some((a) => actionIds(a).some((x) => ids.has(x)));
   const quiet = packet.cases.filter((c) => !touches(gold, new Set(c.entries.map((e) => e.id))));
   const respected = quiet.filter((c) => !touches(predicted, new Set(c.entries.map((e) => e.id)))).length;
   return {

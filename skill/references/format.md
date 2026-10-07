@@ -248,8 +248,9 @@ Set by `remembrancer apply` and the curators, optional everywhere:
 | importance | `high`, `normal` or `low`: how much an archived entry still matters |
 | suggest | `archive`: a curator's suggestion, waiting for a person or a strong model to act on |
 | tags `c-…` | a cluster: a gather curator grouped these entries under one label (`c-crossing-re-seeds`); the log line names the group |
+| kind | `theme`: an entry condensed from several (`remembrancer apply`'s condense); its sources are in `condensed-from` and `refs` |
 | condensed-from | on a theme entry: the IDs it condenses |
-| condensed-into | on a condensed entry: the theme entry that holds its knowledge now |
+| condensed-into | on a condensed entry: the theme entry that holds its knowledge now; `show --links` follows it to the theme as `current:` |
 
 ## log/
 

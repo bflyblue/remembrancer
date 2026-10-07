@@ -78,7 +78,7 @@ describe("cluster", () => {
     await Bun.write(path, JSON.stringify(p));
     expect(clusterTag("Radiator sizing!")).toBe("c-radiator-sizing");
     const applied = await apply(root, path);
-    expect(applied[0].result).toBe("c-radiator-sizing on T001, T002, T003");
+    expect(applied[0].result).toBe('c-radiator-sizing on T001, T002, T003 ("Radiator sizing!")');
     const project = await loadProject(root);
     for (const id of ["T001", "T002", "T003"]) expect(project.byId.get(id)![0].meta.tags).toBe("radiators, c-radiator-sizing");
     expect(lint(project)).toEqual([]);
@@ -89,7 +89,7 @@ describe("cluster", () => {
     await Bun.write(join(root, "p.json"), JSON.stringify({ mode: "gather", made: "2026-10-07", by: "x", actions: [{ action: "condense", id: "T001", why: "x" }] }));
     const r = run(["apply", "p.json"]);
     expect(r.code).toBe(2);
-    expect(r.err).toContain('"condense" is not defined yet');
+    expect(r.err).toContain("a gather run may not condense");
   });
 });
 

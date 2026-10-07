@@ -152,3 +152,13 @@ output was refused whole (it then scores as proposing nothing).
 ```
 
 `curate … --queue --json` adds `"queued": NAME`; `--apply --json` gives `dryRun: false` and the applied actions.
+
+## The `condense` action (insight and manual modes)
+
+```json
+{ "action": "condense", "case": "c3", "from": ["T227", "T228", "T229"],
+  "into": { "kind": "T", "title": "…", "fields": { "area": "planner" }, "body": "… (T227) … **Why:** … (T228)" },
+  "dest": "active", "importance": "low", "why": "one line" }
+```
+
+Applied, it reports `T269 "…" in done.md, from T227, T228, T229`. `proposals add FILE --json` gives `{ok, queued}`.

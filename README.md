@@ -150,6 +150,10 @@ remembrancer apply /tmp/gather.json   # after reading it
 
 **What happens to a run's proposals.** `--save F` keeps them in a file. `--queue` puts them in `.remembrancer/proposals/` for review: `remembrancer proposals` lists the queue, `proposals show NAME` groups a file's actions by case with the entries' titles, `apply NAME` applies one (it moves to `proposals/applied/`), and `proposals reject NAME --why "…"` moves it to `proposals/rejected/` with a line in the curation log. `--apply` applies a gather run at once when its dry run is clean, and changes nothing when it is not: gather actions are reversible metadata (a tag, a link, a flag, a suggestion), so they need no review. Stronger runs that rewrite or move entries go through the queue.
 
+**The weekly insight run.** `remembrancer curate --mode insight` writes a packet for a strong model: the gather runs' clusters (with each run's label and reason, read from the curation log), supersession chains that an entry still cites at an old link, the entries a gather run suggested archiving, then the gather kinds. Every action is allowed, including `condense`: several entries become one theme entry (`kind: theme`, `condensed-from:`), and each source moves to the archive with `condensed-into:`, so its ID still resolves and `show --links` leads from it to the theme. `apply` refuses a condense whose text names none of its sources, drops a reason a source gave (**Why**), or moves the newest entry of a supersession chain without the entries it supersedes. An insight run never applies directly: with `--curator` it is always queued.
+
+Usually the insight curator is the agent you work with (Claude, say): it reads the packet a case at a time, writes a proposals file in insight mode by the rules in `curators/insight.md`, and queues it with `remembrancer proposals add FILE`; you read it with `proposals show` and apply or reject it. The example curators also take an insight packet (they switch to `curators/insight.md`), for a strong model behind an API.
+
 **Is a model good enough to run unattended?** Score it against a packet with known good answers:
 
 ```sh

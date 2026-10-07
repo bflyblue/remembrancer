@@ -20,23 +20,24 @@ import {
   stamp,
   withFiles,
 } from "./commands";
-import { mentions, parseFile } from "./model";
-import { ConflictError, DIR, NotFoundError, type Project, RefusedError, buildProject, kbOn, loadProject } from "./project";
+import { type Entry, type Kind, formatEntry, mentions, padId, parseFile, today } from "./model";
+import { ConflictError, DIR, NotFoundError, type Project, RefusedError, buildProject, kbOn, loadProject, usedNumbers } from "./project";
 
-export const ACTIONS = ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster"] as const;
+export const ACTIONS = ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster", "condense"] as const;
 export type ActionName = (typeof ACTIONS)[number];
 
 // Actions named by the plan but not defined yet, and where they arrive.
-const LATER: Record<string, string> = { condense: "insight curation" };
+const LATER: Record<string, string> = {};
 
 // Who may do what. `manual` (an agent or a person) and `insight` (a strong
 // model's weekly run) take every action; `gather` (a cheap model's daily run)
-// only classifies: its `archive` becomes `suggest: archive`, never a move.
+// only classifies: its `archive` becomes `suggest: archive`, never a move,
+// and it may not `condense`, the one action that writes new text.
 export const MODES = {
   manual: [...ACTIONS],
-  gather: ["retag", "link", "flag", "archive", "cluster"],
+  gather: ["retag", "link", "flag", "archive", "cluster"] as ActionName[],
   insight: [...ACTIONS],
-} as const satisfies Record<string, readonly ActionName[]>;
+} satisfies Record<string, readonly ActionName[]>;
 export type Mode = keyof typeof MODES;
 
 export const LINK_RELS = ["refs", "amends", "supersedes", "closes"] as const;
@@ -44,7 +45,7 @@ export const LINK_RELS = ["refs", "amends", "supersedes", "closes"] as const;
 export interface Action {
   action: ActionName;
   id?: string;
-  from?: string;
+  from?: string | string[]; // link: the entry linked from; condense: the entries condensed
   to?: string;
   rel?: (typeof LINK_RELS)[number];
   if?: string;
@@ -59,6 +60,14 @@ export interface Action {
   case?: string; // cluster: the packet case it answers
   label?: string; // cluster: a few words naming what the members share
   members?: string[]; // cluster: the entries grouped
+  into?: { kind: Kind; title: string; fields?: Record<string, string>; body: string }; // condense: the theme entry
+  dest?: "active" | "archive"; // condense: where the theme entry goes
+}
+
+// The entries an action is about (never a link's target), upper-cased.
+export function actionIds(a: Partial<Action>): string[] {
+  const from = Array.isArray(a.from) ? a.from : a.from ? [a.from] : [];
+  return [...new Set([a.id, ...from, ...(a.members ?? [])].filter((x): x is string => typeof x === "string").map((x) => x.toUpperCase()))];
 }
 
 export interface Proposals {
@@ -79,6 +88,7 @@ const FIELDS: Record<ActionName, [required: string[], optional: string[]]> = {
   link: [["from", "rel", "to"], []],
   flag: [["id", "note"], []],
   cluster: [["label", "members"], ["case"]],
+  condense: [["from", "into"], ["case", "dest", "importance"]],
 };
 
 const ID = /^[TQARK]\d{3,}$/;
@@ -86,7 +96,7 @@ const TAG = /^[a-z0-9-]+$/;
 const oneLine = (v: unknown) => typeof v === "string" && v.trim() !== "" && !v.includes("\n");
 const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
 
-export const label = (a: Partial<Action>, i: number) => `action ${i + 1} (${a.action ?? "?"} ${a.id ?? a.from ?? (Array.isArray(a.members) ? a.members.join(",") : "?")})`;
+export const label = (a: Partial<Action>, i: number) => `action ${i + 1} (${a.action ?? "?"} ${actionIds(a).join(",") || "?"})`;
 
 // A cluster's tag: "crossing re-seeds" → c-crossing-re-seeds.
 export function clusterTag(label: string): string {
@@ -119,7 +129,7 @@ export function validate(data: unknown): string[] {
     for (const k of required) if (a[k] === undefined) at(`needs "${k}"`);
     if (!oneLine(a.why)) at(`needs "why", one line`);
     if (a.if !== undefined && typeof a.if !== "string") at(`"if" must be the entry's hash, as show prints it`);
-    for (const k of ["id", "from", "to"]) if (a[k] !== undefined && !ID.test(String(a[k]))) at(`${k} "${a[k]}" is not an ID`);
+    for (const k of ["id", "from", "to"]) if (a[k] !== undefined && !(name === "condense" && k === "from") && !ID.test(String(a[k]))) at(`${k} "${a[k]}" is not an ID`);
     if (a.importance !== undefined && !["high", "normal", "low"].includes(a.importance as string)) at(`importance must be high, normal or low`);
     if (a.rel !== undefined && !(LINK_RELS as readonly string[]).includes(a.rel as string)) at(`rel must be one of ${LINK_RELS.join(", ")}`);
     for (const k of ["reason", "note"]) if (a[k] !== undefined && !oneLine(a[k])) at(`${k} must be one line`);
@@ -132,6 +142,21 @@ export function validate(data: unknown): string[] {
       if (!oneLine(a.label) || !clusterTag(String(a.label))) at(`label must be a few words, one line`);
       if (!strings(a.members) || (a.members as string[]).length < 2) at(`members must list two or more IDs`);
       else for (const m of a.members as string[]) if (!ID.test(m)) at(`member "${m}" is not an ID`);
+      if (a.case !== undefined && typeof a.case !== "string") at(`case must be the packet case's name`);
+    }
+    if (name === "condense") {
+      if (!strings(a.from) || (a.from as string[]).length < 2) at(`from must list two or more IDs`);
+      else for (const m of a.from as string[]) if (!ID.test(m)) at(`from "${m}" is not an ID`);
+      const into = a.into as Record<string, unknown> | undefined;
+      if (typeof into !== "object" || into === null) at(`into must be the theme entry: {kind, title, body, fields?}`);
+      else {
+        for (const k of Object.keys(into)) if (!["kind", "title", "fields", "body"].includes(k)) at(`into: unknown field "${k}"`);
+        if (!["T", "Q", "A", "R", "K"].includes(into.kind as string)) at(`into.kind must be T, Q, A, R or K`);
+        if (!oneLine(into.title)) at(`into.title must be one line`);
+        if (typeof into.body !== "string" || !into.body.trim()) at(`into.body must hold the condensed text`);
+        if (into.fields !== undefined && (typeof into.fields !== "object" || into.fields === null || !Object.values(into.fields).every((v) => typeof v === "string"))) at(`into.fields must map names to strings`);
+      }
+      if (a.dest !== undefined && !["active", "archive"].includes(a.dest as string)) at(`dest must be active or archive`);
       if (a.case !== undefined && typeof a.case !== "string") at(`case must be the packet case's name`);
     }
   });
@@ -160,9 +185,10 @@ function plan(before: Project, p: Proposals): { changes: Changes; applied: Appli
   const problems: string[] = [];
   const gone = new Map<string, number>(); // ID → the action that moved or removed it
   const applied: Applied[] = [];
+  const claimed = new Set<string>(); // IDs new theme entries took in this file
 
   p.actions.forEach((a, i) => {
-    const id = (a.id ?? a.from ?? a.members![0]).toUpperCase();
+    const id = actionIds(a)[0];
     try {
       for (const ref of [id, ...(a.to ? [a.to.toUpperCase()] : [])]) {
         if (gone.has(ref)) throw new RefusedError(`${ref} was already moved by action ${gone.get(ref)! + 1}`);
@@ -239,7 +265,11 @@ function plan(before: Project, p: Proposals): { changes: Changes; applied: Appli
               return stamp(x, { tags: [...new Set([...tags, tag])].join(", ") });
             });
           }
-          result = `${tag} on ${members.join(", ")}`;
+          result = `${tag} on ${members.join(", ")} ("${a.label}")`;
+          break;
+        }
+        case "condense": {
+          result = condense(before, changes, a, gone, i, claimed, kb);
           break;
         }
         case "flag":
@@ -309,4 +339,78 @@ export async function applyProposals(root: string, p: Proposals, sourceName: str
   const source = `${p.mode} by ${p.by}${p.packet ? `, packet ${p.packet}` : ""}, ${sourceName}`;
   await appendFile(log, start + applied.map((a) => `- ${when} ${a.action} ${a.id}: ${a.result} (${source}): ${p.actions[a.index].why}\n`).join(""));
   return applied;
+}
+
+// The file a theme entry goes to: its kind's active file (a theme of tasks
+// that are all finished goes to done.md), or the archive with dest "archive".
+function themeFile(kind: Kind, members: Entry[], dest: "active" | "archive", kb: boolean): { to: string; header: string; prepend: boolean } {
+  const stems: Record<Kind, string> = { T: "done", Q: "questions", A: "answers", R: "rules", K: "resources" };
+  const openWork = kind === "T" && members.some((m) => m.file === "todo.md");
+  const stem = openWork ? "todo" : stems[kind];
+  if (dest === "archive") {
+    return kb ? { to: `kb/${stem}.md`, header: `# Knowledge base: ${stem}\n`, prepend: true } : { to: `archive/${stem}-${today().slice(0, 4)}.md`, header: `# Archive: ${stem}\n`, prepend: true };
+  }
+  return { to: `${stem}.md`, header: "", prepend: stem === "done" };
+}
+
+// The next free number for a kind, past any this file's themes already took.
+function freshId(before: Project, kind: Kind, claimed: Set<string>): string {
+  const family = kind === "Q" || kind === "A" ? ["Q", "A"] : [kind];
+  let n = Math.max(0, ...usedNumbers(before, kind), ...[...claimed].filter((c) => family.includes(c[0])).map((c) => parseInt(c.slice(1), 10))) + 1;
+  const id = padId(kind, n++);
+  claimed.add(id);
+  return id;
+}
+
+const REASON = /\*\*(Why|Because)\b[^*]*\*\*|^(Why|Because):/im;
+
+// condense: several entries become one theme entry (`kind: theme`,
+// `condensed-from:` and `refs:` naming them), and each source moves to the
+// archive with `condensed-into:`, so its ID still resolves and leads to the
+// theme. Guards against losing knowledge: the theme must name its sources in
+// its text, keep a reason where a source gave one, and no source may be the
+// live end of a supersession chain whose older entries stay behind.
+function condense(before: Project, changes: Changes, a: Action, gone: Map<string, number>, i: number, claimed: Set<string>, kb: boolean): string {
+  const from = actionIds({ from: a.from });
+  const into = a.into!;
+  const members = from.map((m) => {
+    if (gone.has(m)) throw new RefusedError(`${m} was already moved by action ${gone.get(m)! + 1}`);
+    return locate(before, m);
+  });
+  for (const m of members) {
+    for (const older of mentions(m.meta.supersedes ?? "")) {
+      if (!from.includes(older)) throw new RefusedError(`${m.id} supersedes ${older}: condensing ${m.id} alone would leave ${older}'s chain ending in the archive; condense ${older} with it, or leave ${m.id} out`);
+    }
+  }
+  if (!mentions(into.body).some((id) => from.includes(id))) throw new RefusedError(`the theme's body names none of its sources (${from.join(", ")}): say which entry each fact comes from`);
+  const reasoned = members.filter((m) => REASON.test(m.body)).map((m) => m.id);
+  if (reasoned.length && !REASON.test(into.body)) throw new RefusedError(`${reasoned.join(", ")} give${reasoned.length === 1 ? "s" : ""} a reason (**Why**); the theme must keep it under **Why:**`);
+  checkValues(`${into.kind === "T" ? "done" : "x"}.md`, into.fields ?? {});
+  const dest = a.dest ?? "active";
+  const { to, header, prepend } = themeFile(into.kind, members, dest, kb);
+  const id = freshId(before, into.kind, claimed);
+  const dateKey = { T: to.startsWith("todo") ? "added" : "done", Q: "asked", A: "answered", R: "added", K: "added" }[into.kind];
+  const meta: Record<string, string> = {
+    kind: "theme",
+    [dateKey]: today(),
+    ...(into.fields ?? {}),
+    "condensed-from": from.join(", "),
+    refs: [...new Set([...mentions(into.fields?.refs ?? ""), ...from])].join(", "),
+  };
+  const raw = formatEntry({ id, title: into.title.trim(), meta, body: into.body.trim() });
+  if (prepend || dest === "archive") changes.prepend(to, raw, header);
+  else changes.append(to, raw);
+  for (const m of members) {
+    const update = (x: Entry) => {
+      const tags = (x.meta.tags ?? "").split(/[,\s]+/).filter((t) => t && !t.startsWith("c-")).join(", ");
+      return stamp(x, { "condensed-into": id, tags, suggest: "", ...(a.importance ? { importance: a.importance } : {}) });
+    };
+    if (/^(archive|kb)\//.test(m.file)) changes.change(m.id!, update);
+    else {
+      const target = archiveTarget(changes.get(m.id!), kb);
+      changes.move(m.id!, target.to, target.header, update);
+    }
+    gone.set(m.id!, i);
+  }
+  return `${id} "${into.title.trim()}" in ${to}, from ${from.join(", ")}`;
 }

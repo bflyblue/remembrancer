@@ -94,6 +94,30 @@
       },
       "required": ["action", "label", "members", "why"],
       "additionalProperties": false
+    },
+    {
+      "title": "condense: several entries become one theme entry (kind: theme, condensed-from); each source moves to the archive with condensed-into, so its ID still resolves. The body must name its sources and keep their reasons (**Why:**).",
+      "type": "object",
+      "properties": {
+        "action": { "const": "condense" }, "case": { "type": "string" },
+        "from": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/id" } },
+        "into": {
+          "type": "object",
+          "properties": {
+            "kind": { "enum": ["T", "Q", "A", "R", "K"] },
+            "title": { "$ref": "#/$defs/line" },
+            "fields": { "type": "object", "additionalProperties": { "type": "string" } },
+            "body": { "type": "string", "minLength": 1 }
+          },
+          "required": ["kind", "title", "body"],
+          "additionalProperties": false
+        },
+        "dest": { "enum": ["active", "archive"], "description": "where the theme entry goes (default active)" },
+        "importance": { "enum": ["high", "normal", "low"], "description": "set on the moved sources" },
+        "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "from", "into", "why"],
+      "additionalProperties": false
     }
   ]
 }

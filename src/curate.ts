@@ -8,7 +8,7 @@ import { attention } from "./analyse";
 import { drift } from "./anchors";
 import { type Entry, hashText, mentions, today } from "./model";
 import { type Project, RefusedError } from "./project";
-import { type Proposals, label, parseProposals } from "./proposals";
+import { type Action, type Proposals, actionIds, label, parseProposals } from "./proposals";
 import { Index } from "./search";
 import { effectiveDate, stale, tagsOf } from "./signals";
 
@@ -20,7 +20,11 @@ export const MAX_CASE_BODY = 6000; // characters of body text in one case (a sma
 // relative so it needs no tuning to a corpus; edges below it are dropped.
 export const SIMILAR_SHARE = 0.5;
 
-export type CaseKind = "stale" | "similar" | "inbox" | "drift";
+export type CaseKind = "stale" | "similar" | "inbox" | "drift" | "cluster" | "chain" | "suggested";
+export type CurateMode = "gather" | "insight";
+
+// An insight run (a strong model) may take every action on every case.
+export const INSIGHT_ACTIONS = ["condense", "cluster", "link", "retag", "flag", "archive", "set", "keep", "drop"];
 
 // The actions each kind of case invites; all are gather actions.
 export const CASE_ACTIONS: Record<CaseKind, string[]> = {
@@ -28,6 +32,9 @@ export const CASE_ACTIONS: Record<CaseKind, string[]> = {
   stale: ["archive", "link", "retag", "flag"],
   inbox: ["retag", "link", "flag", "archive"],
   drift: ["flag", "link", "retag"],
+  cluster: INSIGHT_ACTIONS,
+  chain: INSIGHT_ACTIONS,
+  suggested: INSIGHT_ACTIONS,
 };
 
 export interface PacketEntry {
@@ -51,7 +58,7 @@ export interface Case {
 
 export interface Packet {
   packet: string; // the hash of the cases: proposals answering it carry it
-  mode: "gather";
+  mode: CurateMode;
   made: string;
   owner: string | null;
   scope: Scope;
@@ -181,7 +188,11 @@ function revisitHints(project: Project): Map<string, string> {
   return out;
 }
 
-export function buildPacket(project: Project, { scope = "active" as Scope, now = new Date() } = {}): Packet {
+// A gather packet, or with mode "insight" one for a strong model: first the
+// gather runs' clusters (with their labels and reasons from the log), the
+// supersession chains still cited by an older link, and the entries a gather
+// run suggested archiving; then the gather kinds; every case allowing every action.
+export function buildPacket(project: Project, { scope = "active" as Scope, now = new Date(), mode = "gather" as CurateMode, log = "" } = {}): Packet {
   const pool = project.entries.filter((e) => inScope(e, scope));
   const poolIds = new Set(pool.map((e) => e.id!));
   const used = new Set<string>();
@@ -189,10 +200,35 @@ export function buildPacket(project: Project, { scope = "active" as Scope, now =
   const add = (kind: CaseKind, entries: Entry[], evidence: (group: Entry[]) => string) => {
     for (const group of chunk(entries.filter((e) => poolIds.has(e.id!) && !used.has(e.id!)))) {
       for (const e of group) used.add(e.id!);
-      cases.push({ kind, evidence: evidence(group), allowed: CASE_ACTIONS[kind], entries: group.map(packetEntry) });
+      cases.push({ kind, evidence: evidence(group), allowed: mode === "insight" ? INSIGHT_ACTIONS : CASE_ACTIONS[kind], entries: group.map(packetEntry) });
     }
   };
   const byId = (id: string) => project.byId.get(id)?.[0];
+
+  if (mode === "insight") {
+    // The gather runs' clusters: entries sharing a c- tag, with the run's label and reason.
+    const told = new Map<string, string>();
+    for (const m of log.matchAll(/^- \S+ cluster \S+: (c-[a-z0-9-]+) on [^\n]*?\("([^"\n]*)"\) \(([^)\n]*)\): (.*)$/gm)) told.set(m[1], `"${m[2]}" (${m[3]}): ${m[4]}`);
+    const byTag = new Map<string, Entry[]>();
+    for (const e of pool) for (const tag of tagsOf(e).filter((x) => x.startsWith("c-"))) byTag.set(tag, [...(byTag.get(tag) ?? []), e]);
+    for (const [tag, members] of byTag) {
+      if (members.length > 1) add("cluster", members, () => `gather cluster ${tag}${told.has(tag) ? `: ${told.get(tag)}` : ""}`);
+    }
+    // Supersession chains an entry still cites at an old link: the citation, or the chain, may want condensing.
+    for (const start of pool.filter((e) => e.meta["superseded-by"] && !e.meta.supersedes)) {
+      const chain = [start];
+      for (let at = start; ; ) {
+        const next = byId(mentions(at.meta["superseded-by"] ?? "")[0] ?? "");
+        if (!next || chain.includes(next)) break;
+        chain.push(next);
+        at = next;
+      }
+      const old = new Set(chain.slice(0, -1).map((e) => e.id!));
+      const citers = pool.filter((e) => !chain.includes(e) && mentions(e.raw.split("\n").slice(1).join("\n")).some((id) => old.has(id))).map((e) => e.id);
+      if (chain.length > 1 && citers.length) add("chain", chain, () => `${chain.map((e) => e.id).join(" → ")}; the older still cited by ${citers.slice(0, 8).join(", ")}`);
+    }
+    add("suggested", pool.filter((e) => e.meta.suggest === "archive"), () => "a gather run suggested archiving these");
+  }
 
   // Drift: references gone stale, rules unreviewed, answers whose condition may hold.
   const reasons = new Map<string, string[]>();
@@ -215,7 +251,7 @@ export function buildPacket(project: Project, { scope = "active" as Scope, now =
     g.map((e) => `${e.id}: unchanged ${ages.get(e.id!) ?? "?"} days, cited by nothing live`).join(" | "));
 
   const named = cases.map((c, i) => ({ case: `c${i + 1}`, ...c }));
-  return { packet: hashText(JSON.stringify(named)), mode: "gather", made: today(), owner: project.config.owner ?? null, scope, cases: named };
+  return { packet: hashText(JSON.stringify(named)), mode, made: today(), owner: project.config.owner ?? null, scope, cases: named };
 }
 
 // A rough size, for choosing a model: about four characters to a token.
@@ -228,8 +264,8 @@ export function packetSize(p: Packet): { cases: number; byKind: Record<string, n
 }
 
 // The IDs an action names that must be in the packet (its subject, never a link's target).
-export function subjects(a: { id?: string; from?: string; members?: string[] }): string[] {
-  return [a.id, a.from, ...(a.members ?? [])].filter((x): x is string => !!x).map((x) => x.toUpperCase());
+export function subjects(a: Partial<Action>): string[] {
+  return actionIds(a);
 }
 
 // Run a curator command: the packet on its stdin, proposals on its stdout.

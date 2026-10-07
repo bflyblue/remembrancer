@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "proposals.json",
   "title": "A remembrancer proposals file",
-  "description": "Dispositions for `remembrancer apply`, applied in one locked step or refused whole. `mode` says who wrote it and so which actions it may take: manual (an agent or a person) and insight (a strong model's run) take every action; gather (a cheap model's run) only classifies (retag, link, flag, cluster), and its archive becomes `suggest: archive`.",
+  "description": "Dispositions for `remembrancer apply`, applied in one locked step or refused whole. `mode` says who wrote it and so which actions it may take: manual (an agent or a person) and insight (a strong model's run) take every action; gather (a cheap model's run) only classifies (retag, link, flag, cluster), and its archive becomes `suggest: archive`; only manual and insight runs may condense.",
   "type": "object",
   "properties": {
     "mode": { "enum": ["manual", "gather", "insight"] },
@@ -16,7 +16,7 @@
   "allOf": [
     {
       "if": { "properties": { "mode": { "const": "manual" } } },
-      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster"] } } } } } }
+      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster", "condense"] } } } } } }
     },
     {
       "if": { "properties": { "mode": { "const": "gather" } } },
@@ -24,7 +24,7 @@
     },
     {
       "if": { "properties": { "mode": { "const": "insight" } } },
-      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster"] } } } } } }
+      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster", "condense"] } } } } } }
     }
   ]
 }

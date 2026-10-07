@@ -5,8 +5,8 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { briefData, renderBrief } from "./brief";
 import { formatPlan, planTree, stale, waiting } from "./signals";
-import { LOG, ProposalsRefusedError, apply, applyProposals } from "./proposals";
-import { type Scope, buildPacket, callCurator, packetProblems, packetSize } from "./curate";
+import { LOG, ProposalsRefusedError, apply, applyProposals, readProposals } from "./proposals";
+import { type CurateMode, type Scope, buildPacket, callCurator, packetProblems, packetSize } from "./curate";
 import { evaluate, formatScores } from "./eval";
 import { enqueue, listQueue, markApplied, rejectQueued, resolveQueued, showQueued } from "./queue";
 import { formatHits, search } from "./search";
@@ -97,20 +97,25 @@ usage:
                                      through config.json's check.test, or cmd: command); pass, FAIL
                                      with the last 20 lines, or skipped; a pass sets checked:.
                                      Exit 1 on any failure
-  remembrancer curate --mode gather [--scope active|archive|all] [--out F]
+  remembrancer curate --mode gather|insight [--scope active|archive|all] [--out F]
                       [--curator "CMD" [--save F | --queue | --apply]]
                                      a packet of small cases (drift, inbox, alike entries, stale)
                                      for a cheap model to classify. --out writes it (else stdout).
                                      --curator pipes it to CMD and dry-runs the proposals CMD
                                      prints; --save keeps them, --queue puts them in the queue for
                                      review, --apply applies them (gather only) when the dry run
-                                     is clean. Example curators: curators/ (README)
+                                     is clean. --mode insight: a packet for a strong model (the
+                                     gather runs' clusters, chains still cited at an old link,
+                                     suggested archives, then the rest), every action allowed,
+                                     condense included; its run is always queued. Example
+                                     curators and prompts: curators/ (README)
   remembrancer curate --eval DIR --curator "CMD" [--curator "CMD2"]...
                                      score curators on DIR/packet.json against DIR/gold.json:
                                      precision and recall per action, cluster agreement, dry-run
                                      acceptance, and the cases they rightly left alone
-  remembrancer proposals [list] | show NAME | reject NAME --why "…"
-                                     the queue in .remembrancer/proposals/: show groups a file's
+  remembrancer proposals [list] | add FILE | show NAME | reject NAME --why "…"
+                                     the queue in .remembrancer/proposals/: add queues a file
+                                     written by hand after a dry run; show groups a file's
                                      actions by case, with titles; apply NAME applies one
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
@@ -502,10 +507,14 @@ async function main(argv: string[]) {
       }
       const mode = opt("--mode")[0];
       const scope = (opt("--scope")[0] ?? "active") as Scope;
-      const usage = 'usage: remembrancer curate --mode gather [--scope active|archive|all] [--out F] [--curator "CMD" [--save F | --queue | --apply]]';
-      if (mode !== "gather" || !["active", "archive", "all"].includes(scope)) fail(2, mode === "insight" ? "insight mode arrives in a later slice" : usage, json);
+      const usage = 'usage: remembrancer curate --mode gather|insight [--scope active|archive|all] [--out F] [--curator "CMD" [--save F | --queue | --apply]]';
+      if ((mode !== "gather" && mode !== "insight") || !["active", "archive", "all"].includes(scope)) fail(2, usage, json);
       if ([has("--queue"), has("--apply"), !!opt("--save")[0]].filter(Boolean).length > 1) fail(2, "choose one of --save, --queue and --apply", json);
-      const packet = buildPacket(await loadProject(root), { scope });
+      // D1: an insight run writes new text, so it always waits in the queue for a person.
+      if (mode === "insight" && has("--apply")) fail(2, "an insight run is queued for review, never applied directly (remembrancer proposals show, then apply)", json);
+      const logPath = join(root, DIR, LOG);
+      const log = (await Bun.file(logPath).exists()) ? await Bun.file(logPath).text() : "";
+      const packet = buildPacket(await loadProject(root), { scope, mode: mode as CurateMode, log });
       const size = packetSize(packet);
       const summary = `packet ${packet.packet}: ${size.cases} cases (${Object.entries(size.byKind).map(([k, n]) => `${n} ${k}`).join(", ") || "none"}), about ${size.tokens} tokens; ${size.meanCaseTokens} per case on average, ${size.maxCaseTokens} at most`;
       const out = opt("--out")[0];
@@ -529,7 +538,7 @@ async function main(argv: string[]) {
       if (save) await Bun.write(save, JSON.stringify(proposals, null, 2) + "\n");
       let queued: string | null = null;
       let applied: typeof dry | null = null;
-      if (has("--queue")) queued = await enqueue(root, proposals, packet);
+      if (has("--queue") || mode === "insight") queued = await enqueue(root, proposals, packet);
       if (has("--apply")) {
         // D1: a gather run's actions are reversible metadata, so they apply without review.
         if (proposals.mode !== "gather") fail(2, "only a gather run applies directly; queue the others for review", json);
@@ -558,7 +567,15 @@ async function main(argv: string[]) {
         else for (const q of list) console.log(`${q.name}  ${q.mode} by ${q.by}, ${q.made}, ${q.actions} action${q.actions === 1 ? "" : "s"}`);
         return;
       }
-      if (!name || !["show", "reject"].includes(sub)) fail(2, 'usage: remembrancer proposals [list] | show NAME | reject NAME --why "…"', json);
+      if (!name || !["show", "reject", "add"].includes(sub)) fail(2, 'usage: remembrancer proposals [list] | add FILE | show NAME | reject NAME --why "…"', json);
+      if (sub === "add") {
+        // A proposals file written by hand (an agent's insight run): checked by a dry run, then queued.
+        const p = await readProposals(resolve(name));
+        await applyProposals(root, p, basename(name), { dryRun: true });
+        const queued = await enqueue(root, p, null);
+        console.log(json ? JSON.stringify({ ok: true, queued }, null, 2) : `queued ${p.actions.length} action${p.actions.length === 1 ? "" : "s"} as ${queued}: remembrancer proposals show ${queued}, then apply or reject it`);
+        return;
+      }
       if (sub === "show") {
         console.log(await showQueued(root, await loadProject(root), name));
         return;
