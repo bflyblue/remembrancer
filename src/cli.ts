@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { randomBytes } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -8,7 +9,7 @@ import { formatPlan, planTree, stale, waiting } from "./signals";
 import { LOG, ProposalsRefusedError, apply, applyProposals, readProposals } from "./proposals";
 import { type CurateMode, type Scope, buildPacket, callCurator, packetProblems, packetSize } from "./curate";
 import { evaluate, formatScores } from "./eval";
-import { enqueue, listQueue, markApplied, rejectQueued, resolveQueued, showQueued } from "./queue";
+import { enqueue, listQueue, markApplied, partialPath, rejectQueued, resolveQueued, showPartial, showQueued } from "./queue";
 import { formatHits, search } from "./search";
 import { anchorCitations, anchorDefinitions, repoOf } from "./anchors";
 import { type CheckResult, recordChecks, runChecks } from "./check";
@@ -113,7 +114,7 @@ usage:
                                      score curators on DIR/packet.json against DIR/gold.json:
                                      precision and recall per action, cluster agreement, dry-run
                                      acceptance, and the cases they rightly left alone
-  remembrancer proposals [list] | add FILE | show NAME | reject NAME --why "…"
+  remembrancer proposals [list] | partial | add FILE | show NAME | reject NAME --why "…"
                                      the queue in .remembrancer/proposals/: add queues a file
                                      written by hand after a dry run; show groups a file's
                                      actions by case, with titles; apply NAME applies one
@@ -525,7 +526,13 @@ async function main(argv: string[]) {
         return;
       }
       if (!json) console.error(summary);
-      const { proposals } = await callCurator(curators[0], packet);
+      // Each case's answer lands in log/ as it is made: `proposals partial` shows a long run so far.
+      const partial = partialPath(root, packet.packet);
+      mkdirSync(dirname(partial), { recursive: true });
+      await Bun.write(partial, "");
+      await Bun.write(partial.replace(/\.jsonl$/, ".packet.json"), JSON.stringify(packet, null, 2) + "\n");
+      if (!json) console.error(`partial results as they come: remembrancer proposals partial`);
+      const { proposals } = await callCurator(curators[0], packet, { partial });
       if (!proposals) {
         console.log(json ? JSON.stringify({ ok: true, applied: [], dryRun: true }, null, 2) : "the curator proposed nothing");
         return;
@@ -567,7 +574,11 @@ async function main(argv: string[]) {
         else for (const q of list) console.log(`${q.name}  ${q.mode} by ${q.by}, ${q.made}, ${q.actions} action${q.actions === 1 ? "" : "s"}`);
         return;
       }
-      if (!name || !["show", "reject", "add"].includes(sub)) fail(2, 'usage: remembrancer proposals [list] | add FILE | show NAME | reject NAME --why "…"', json);
+      if (sub === "partial") {
+        console.log(await showPartial(root, await loadProject(root)));
+        return;
+      }
+      if (!name || !["show", "reject", "add"].includes(sub)) fail(2, 'usage: remembrancer proposals [list] | partial | add FILE | show NAME | reject NAME --why "…"', json);
       if (sub === "add") {
         // A proposals file written by hand (an agent's insight run): checked by a dry run, then queued.
         const p = await readProposals(resolve(name));

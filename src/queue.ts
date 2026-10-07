@@ -2,11 +2,11 @@
 // .remembrancer/proposals/ (git-ignored by doctor's lines). Each file sits
 // beside its packet, so `show` can group actions by case. `apply` moves an
 // applied file to applied/, `reject` to rejected/ with a log line.
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import type { Packet } from "./curate";
-import { LOG, type Proposals, actionIds, readProposals } from "./proposals";
+import { type Action, LOG, type Proposals, actionIds, readProposals } from "./proposals";
 import { DIR, NotFoundError, type Project, RefusedError } from "./project";
 
 export const QUEUE = "proposals";
@@ -61,6 +61,30 @@ export async function showQueued(root: string, project: Project, name: string): 
   if (!path) throw new NotFoundError(`no queued proposals ${name} (remembrancer proposals list)`);
   const p = await readProposals(path);
   const packet = existsSync(packetOf(path)) ? ((await Bun.file(packetOf(path)).json()) as Packet) : null;
+  return renderProposals(project, p, packet, `${basename(path)}: ${p.mode} by ${p.by}, ${p.made}, ${p.actions.length} action${p.actions.length === 1 ? "" : "s"}`);
+}
+
+// A partial run's file, as the curator appends it: one line per case answered or skipped.
+export const partialPath = (root: string, packetId: string) => join(root, DIR, "log", `partial-${packetId}.jsonl`);
+const partialPacket = (path: string) => path.replace(/\.jsonl$/, ".packet.json");
+
+// The newest partial run, shown like a queued one, with how far it has got.
+export async function showPartial(root: string, project: Project): Promise<string> {
+  const dir = join(root, DIR, "log");
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => /^partial-.*\.jsonl$/.test(f)).map((f) => join(dir, f)) : [];
+  if (!files.length) throw new NotFoundError("no partial run: one is written while curate --curator runs");
+  const path = files.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  const lines = (await Bun.file(path).text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { case: string; n: number; total: number; actions?: Action[]; skipped?: string[] });
+  const packet = existsSync(partialPacket(path)) ? ((await Bun.file(partialPacket(path)).json()) as Packet) : null;
+  const actions = lines.flatMap((l) => l.actions ?? []);
+  const skipped = lines.filter((l) => l.skipped).map((l) => `${l.case}: ${l.skipped!.join("; ")}`);
+  const last = lines.at(-1);
+  const header = `${basename(path)}: ${packet?.mode ?? "?"} run in progress or stopped, ${lines.length} of ${last?.total ?? "?"} cases answered (${skipped.length} skipped), ${actions.length} action${actions.length === 1 ? "" : "s"} so far`;
+  const body = renderProposals(project, { mode: packet?.mode ?? "gather", packet: packet?.packet ?? "", made: "", by: "", actions } as Proposals, packet, header);
+  return skipped.length ? `${body}\n\nskipped:\n  ${skipped.join("\n  ")}` : body;
+}
+
+function renderProposals(project: Project, p: Proposals, packet: Packet | null, header: string): string {
   const caseOf = new Map<string, { case: string; kind: string; evidence: string }>();
   for (const c of packet?.cases ?? []) for (const e of c.entries) caseOf.set(e.id, c);
   const title = (id: string) => project.byId.get(id.toUpperCase())?.[0]?.title ?? "(no entry)";
@@ -75,7 +99,6 @@ export async function showQueued(root: string, project: Project, name: string): 
     const lines = [`  ${i + 1}. ${detail}  (${a.why})`, ...ids.map((id) => `       ${id} ${title(id)}`)];
     groups.set(head, [...(groups.get(head) ?? []), ...lines]);
   });
-  const header = `${basename(path)}: ${p.mode} by ${p.by}, ${p.made}, ${p.actions.length} action${p.actions.length === 1 ? "" : "s"}`;
   return [header, ...[...groups].flatMap(([head, lines]) => ["", head, ...lines])].join("\n");
 }
 

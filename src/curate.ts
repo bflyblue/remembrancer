@@ -272,9 +272,12 @@ export function subjects(a: Partial<Action>): string[] {
 // Run a curator command: the packet on its stdin, proposals on its stdout.
 // It runs outside the lock (it may take minutes); its stderr passes through.
 // `proposals` is null when it proposed nothing.
-export async function callCurator(command: string, packet: Packet, { quiet = false } = {}): Promise<{ proposals: Proposals | null; seconds: number }> {
+export async function callCurator(command: string, packet: Packet, { quiet = false, partial = null as string | null } = {}): Promise<{ proposals: Proposals | null; seconds: number }> {
   const start = performance.now();
-  const proc = Bun.spawn(["sh", "-c", command], { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: quiet ? "ignore" : "inherit" });
+  // With `partial`, the curator appends each case's answer there as it goes (see curators/lib.ts), so a long run can be
+  // watched with `proposals partial`, and a run that dies keeps what it finished.
+  const env = partial ? { ...process.env, REMEMBRANCER_PARTIAL: partial } : process.env;
+  const proc = Bun.spawn(["sh", "-c", command], { cwd: process.cwd(), env, stdin: "pipe", stdout: "pipe", stderr: quiet ? "ignore" : "inherit" });
   proc.stdin.write(JSON.stringify(packet));
   proc.stdin.end();
   const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);

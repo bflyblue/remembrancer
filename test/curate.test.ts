@@ -72,6 +72,17 @@ describe("the packet", () => {
     expect(kinds("insight")).toContain("T009");
   });
 
+  test("a curator run leaves each case's answer in a partial file as it goes, shown by proposals partial", async () => {
+    const script = join(root, "silent-curator.ts");
+    await Bun.write(script, `import { runCurator } from "${join(import.meta.dir, "..", "curators", "lib.ts")}";\nawait runCurator(async () => '{"actions": []}', "test");\n`);
+    const r = run(["curate", "--mode", "gather", "--curator", `bun ${script}`]);
+    expect(r.code).toBe(0);
+    const shown = run(["proposals", "partial"]);
+    expect(shown.code).toBe(0);
+    const total = buildPacket(await loadProject(root)).cases.length;
+    expect(shown.out).toContain(`${total} of ${total} cases answered (0 skipped), 0 actions so far`);
+  });
+
   test("a group never passes twelve members", async () => {
     await write("todo.md", "# Todo\n\n" + Array.from({ length: 30 }, (_, i) => todo(`T${String(i + 1).padStart(3, "0")}`, "Radiator sizing", " · tags: radiators")).join("\n"));
     const groups = similarGroups((await loadProject(root)).entries.filter((e) => e.file === "todo.md"));

@@ -2,6 +2,7 @@
 // about each case (one small prompt per case), check the answer, retry once
 // with the problems named, and print a gather proposals file on stdout.
 // Progress and skipped cases go to stderr. Run from a remembrancer checkout.
+import { appendFileSync } from "node:fs";
 import { mentions } from "../src/model";
 import { validate } from "../src/proposals";
 import actionSchema from "../schema/action.json";
@@ -167,6 +168,11 @@ export function caseMessage(c: PacketCase): string {
 
 export async function runCurator(ask: Ask, by: string) {
   const packet = JSON.parse(await Bun.stdin.text()) as { packet: string; mode: string; cases: PacketCase[] };
+  // Each case's checked answer, appended as it is made, when the CLI names a file for them (REMEMBRANCER_PARTIAL).
+  const partialPath = process.env.REMEMBRANCER_PARTIAL;
+  const partial = (line: Record<string, unknown>) => {
+    if (partialPath) appendFileSync(partialPath, JSON.stringify(line) + "\n");
+  };
   const system = await systemPrompt(packet.mode);
   const actions: Record<string, unknown>[] = [];
   for (const [n, c] of packet.cases.entries()) {
@@ -182,6 +188,7 @@ export async function runCurator(ask: Ask, by: string) {
         dropped = checked.dropped;
         if (!problems.length) {
           actions.push(...checked.actions);
+          partial({ case: c.case, n: n + 1, total: packet.cases.length, actions: checked.actions });
           break;
         }
       } catch (err) {
@@ -189,6 +196,7 @@ export async function runCurator(ask: Ask, by: string) {
       }
       messages.push({ role: "assistant", content: reply }, { role: "user", content: `That answer had problems:\n- ${problems.join("\n- ")}\nAnswer again with the JSON object only.` });
     }
+    if (problems.length) partial({ case: c.case, n: n + 1, total: packet.cases.length, skipped: problems });
     const left = dropped.length ? `; already in the records, left out: ${dropped.join("; ")}` : "";
     console.error(`${c.case} (${n + 1}/${packet.cases.length}): ${problems.length ? `skipped: ${problems.join("; ")}` : "ok"}${left}`);
   }
