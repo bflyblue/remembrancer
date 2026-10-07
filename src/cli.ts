@@ -5,7 +5,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { brief } from "./brief";
 import { guard } from "./guard";
-import { LintRefusedError, appendLine, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
+import { LintRefusedError, type RuleAction, amend, answerQuestion, appendLine, archiveEntry, ruleAction, supersede, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
 import { lint } from "./analyse";
 import { ConflictError, DIR, NotFoundError, RefusedError, findRoot, loadProject, nextId, visibility } from "./project";
@@ -39,6 +39,20 @@ usage:
                                      change metadata fields
   remembrancer append ID --section Name --line "text" [--if HASH]
                                      add "- YYYY-MM-DD: text" under **Name:** (made if missing)
+  remembrancer answer Q### "title" --body TEXT|- [--revisit-if "…"] [--closes Q…] [--amends A…]
+                      [--supersedes A…] [--partial] [--if HASH] [--key=value]...
+                                     write the answer A### (the body needs **Answer**, **Why** and
+                                     **Alternatives considered**; **Question** is copied from the
+                                     question) and remove the question and those it closes.
+                                     --partial: a fresh number, the question stays with a History line
+  remembrancer decide "title" --body TEXT|- [--revisit-if "…"] [--amends A…] [--supersedes A…]
+                                     an answer no question asked for, with a fresh number
+  remembrancer supersede OLD --by NEW | amend OLD --by NEW
+                                     two answers or two rules: both ends set (a superseded rule is
+                                     retired)
+  remembrancer rule R### activate | retire [--by R###] | challenge --question Q### | reviewed
+                                     a rule's status, with a History line (reviewed: the date only)
+  remembrancer move ID --to archive  into archive/<file>-<year>.md
                                      Every write: locked, checked, stamped touched:, linted; a
                                      stale --if or a write that adds a lint problem exits 2 and
                                      changes nothing. --json on any of them prints {ok, id, file,
@@ -103,7 +117,10 @@ const HAND_EDIT_HINT: Record<string, string> = {
 
 // Options that take a value; `--unset` may repeat. Any other `--key=value` is
 // a field (for `new`), and any other `--flag` a switch.
-const VALUED = new Set(["--body", "--body-file", "--outcome", "--outcome-file", "--reason", "--if", "--title", "--section", "--line", "--unset"]);
+const VALUED = new Set([
+  "--body", "--body-file", "--outcome", "--outcome-file", "--reason", "--if", "--title", "--section", "--line", "--unset",
+  "--revisit-if", "--closes", "--amends", "--supersedes", "--by", "--question", "--to",
+]);
 
 function parseArgs(args: string[]) {
   const pos: string[] = [];
@@ -243,6 +260,62 @@ async function main(argv: string[]) {
       if (!section || line === undefined) fail(2, 'usage: remembrancer append ID --section Name --line "text"', json);
       await appendLine(root, ref, section, line);
       return reportWrite(root, id, json, `${id}: added to ${section}`);
+    }
+    case "answer":
+    case "decide": {
+      const { pos, opt, fields, has } = parseArgs(args);
+      const qid = cmd === "answer" ? (pos.shift() ?? "").toUpperCase() : null;
+      const title = pos.join(" ").trim();
+      const body = await readText(opt, "body", json);
+      if ((cmd === "answer" && !qid) || !title || body === undefined) {
+        fail(2, cmd === "answer"
+          ? 'usage: remembrancer answer Q### "title" --body TEXT|- [--revisit-if "…"] [--closes Q…] [--amends A…] [--supersedes A…] [--partial] [--if HASH]'
+          : 'usage: remembrancer decide "title" --body TEXT|- [--revisit-if "…"] [--closes Q…] [--amends A…] [--supersedes A…]', json);
+      }
+      const ids = (name: string) => opt(name).flatMap((v) => v.split(/[,\s]+/)).filter(Boolean);
+      const root = requireRoot();
+      const id = await answerQuestion(root, qid, {
+        title,
+        body: body!,
+        revisitIf: opt("--revisit-if")[0],
+        closes: ids("--closes"),
+        amends: ids("--amends"),
+        supersedes: ids("--supersedes"),
+        partial: has("--partial"),
+        ifHash: opt("--if")[0],
+        fields,
+      });
+      return reportWrite(root, id, json, qid && !has("--partial") ? `${id} answers ${qid}` : id);
+    }
+    case "supersede":
+    case "amend": {
+      const { pos, opt } = parseArgs(args);
+      const older = (pos[0] ?? "").toUpperCase();
+      const newer = (opt("--by")[0] ?? "").toUpperCase();
+      if (!older || !newer) fail(2, `usage: remembrancer ${cmd} OLD --by NEW  (two answers, or two rules)`, json);
+      const root = requireRoot();
+      await (cmd === "supersede" ? supersede : amend)(root, older, newer);
+      return reportWrite(root, newer, json, `${newer} ${cmd === "supersede" ? "supersedes" : "amends"} ${older}`);
+    }
+    case "rule": {
+      const { pos, opt } = parseArgs(args);
+      const rid = (pos[0] ?? "").toUpperCase();
+      const action = pos[1] as RuleAction;
+      if (!rid || !["activate", "retire", "challenge", "reviewed"].includes(action)) {
+        fail(2, "usage: remembrancer rule R### activate|retire [--by R###]|challenge --question Q###|reviewed", json);
+      }
+      const root = requireRoot();
+      await ruleAction(root, rid, action, { by: opt("--by")[0]?.toUpperCase(), question: opt("--question")[0]?.toUpperCase() });
+      return reportWrite(root, rid, json, `${rid}: ${action}`);
+    }
+    case "move": {
+      const { pos, opt } = parseArgs(args);
+      const id = (pos[0] ?? "").toUpperCase();
+      if (!id || opt("--to")[0] !== "archive") fail(2, "usage: remembrancer move ID --to archive", json);
+      const root = requireRoot();
+      const project = await loadProject(root);
+      const moved = await archiveEntry(root, refTo(project, locate(project, id)));
+      return reportWrite(root, id, json, `${id} → ${moved}`);
     }
     case "brief": {
       const root = findRoot();

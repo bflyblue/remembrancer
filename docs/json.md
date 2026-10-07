@@ -31,13 +31,13 @@ One ID prints one object; several print an array of them, in the order asked.
 `title` is null when no entry has the ID (an answered question reads as its answer's title). `current` is where a
 chain of `superseded-by` leads, or null.
 
-## `new`, `done`, `drop`, `edit`, `set`, `append` with `--json`
+## Writes with `--json`: `new`, `done`, `drop`, `edit`, `set`, `append`, `answer`, `decide`, `supersede`, `amend`, `rule`, `move`
 
 ```json
 { "ok": true, "id": "T012", "file": "done.md", "hash": "3f9a…" }
 ```
 
-`hash` is the entry's hash after the write, for the next `--if`. A refusal is an error as above, exit 2.
+`hash` is the entry's hash after the write, for the next `--if`. `id` is the entry written: the answer for `answer` and `decide`, the newer entry for `supersede` and `amend`, the rule for `rule`. A refusal is an error as above, exit 2.
 
 ## `lint --json`
 

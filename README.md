@@ -82,6 +82,12 @@ remembrancer drop T012 --reason "…"   # move to done.md as dropped, with the r
 remembrancer set T012 priority=P1 [--unset area] [--if HASH]   # change fields
 remembrancer append R003 --section History --line "…"  # add a dated line under **History:**
 remembrancer edit T012 --if HASH --title "…" [--body -]  # HASH from show: refuses a stale edit
+remembrancer answer Q014 "title" --body - [--revisit-if "…"] [--closes Q015] [--supersedes A009] [--partial]
+                             # write A014 (Question copied from Q014) and remove the question
+remembrancer decide "title" --body -  # an answer no question asked for
+remembrancer supersede A009 --by A014 # both ends set; a superseded rule is retired (also: amend)
+remembrancer rule R003 activate|retire [--by R012]|challenge --question Q020|reviewed
+remembrancer move T012 --to archive  # into archive/done-2026.md
 remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…
 remembrancer lint --ids      # IDs and links only (fast; `--hook` reads a PostToolUse call on stdin)
 remembrancer show A012 T004  # whole entries, each with its hash (`--json` for data)

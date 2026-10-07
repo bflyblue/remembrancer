@@ -91,7 +91,10 @@ When a question turns out to have separate parts, split it into narrower questio
 | amends | no | the A IDs this answer changes; both still stand |
 | supersedes | no | the A ID this answer replaces; the old one no longer stands |
 | superseded-by | no | on a replaced answer: the A ID that replaced it |
+| amended-by | no | on an amended answer: the A IDs that amend it |
 | refs | no | related IDs, including partial answers to the same question |
+
+Each relation is kept at both ends: `supersedes` with `superseded-by`, `amends` with `amended-by`. `remembrancer lint` reports a missing end, `remembrancer doctor --fix` adds it, and the `answer`, `supersede` and `amend` commands set both.
 
 The body must contain **Question**, **Answer**, **Why** and **Alternatives considered**.
 
@@ -129,6 +132,7 @@ Rules are the curated core. Keep them few, precise and current.
 | enforced-by | no | the test or check that encodes it: `path/to/test.ts: "test name"` |
 | supersedes | no | the R ID this rule replaces |
 | superseded-by | no | on a retired rule: the R ID that replaced it |
+| amends, amended-by | no | as for answers: a rule that changes another while both stand |
 
 The three forms:
 - **invariant**: must always hold, and a machine can check it. The goal is a test, recorded in `enforced-by`.

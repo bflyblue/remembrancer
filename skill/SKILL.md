@@ -37,7 +37,9 @@ Entry shape: `## T012 · title`, then one metadata line `key: value · key: valu
 
 ## Make every change through the CLI
 
-Make every change to `.remembrancer/` with a `remembrancer` command. Do not edit the files directly: a hand edit takes no lock, checks nothing against what you read, and has already deleted another session's entry. Edit by hand only when no command does the job (for now: answering a question, superseding or amending an answer, changing a rule's status, and `scratch.md`). Then keep the edit to the entries you mean to change, and run `remembrancer lint` after it.
+Make every change to `.remembrancer/` with a `remembrancer` command. Do not edit the files directly: a hand edit takes no lock, checks nothing against what you read, and has already deleted another session's entry. Edit by hand only `scratch.md`, and repairs no command can make (a broken heading, a duplicate ID); then keep the edit to what you mean to change, and run `remembrancer lint` after it.
+
+If `remembrancer` reports an unknown command, the installed CLI is older than this skill: run the same command from the checkout, `bun ~/devel/personal/remembrancer/src/cli.ts …`.
 
 Every command takes the lock, checks the entry, stamps `touched:`, and lints the result. A write that would add a lint problem, or whose `--if HASH` is stale, exits 2 and changes nothing. Read the message, fix the cause, and run it again.
 
@@ -50,12 +52,17 @@ Every command takes the lock, checks the entry, stamps `touched:`, and lints the
 | change fields | `remembrancer set T012 priority=P1 after=T010 [--unset area]` |
 | add a dated line to a section | `remembrancer append R003 --section History --line "revised: …"` |
 | change a title or body | `remembrancer show T012` for its hash, then `remembrancer edit T012 --if HASH [--title "…"] [--body -]` |
+| answer a question | `remembrancer answer Q014 "the answer in a line" --body - [--revisit-if "…"] [--closes Q015] [--supersedes A009 | --amends A009]` |
+| record a decision no question asked for | `remembrancer decide "title" --body -` |
+| replace or change an earlier answer or rule | `remembrancer supersede A009 --by A014`, `remembrancer amend A009 --by A014` |
+| change a rule's status | `remembrancer rule R003 activate`, `… challenge --question Q020`, `… retire [--by R012]`, `… reviewed` |
+| archive an entry | `remembrancer move T012 --to archive` |
 
 A body comes from `--body "text"`, `--body -` (stdin: use it for anything long or holding quotes) or `--body-file F`, exactly one. A field value may not contain ` · ` or a newline. Each command prints the entry's new hash; pass it as `--if` to a later write when nothing may have changed in between.
 
 ## Getting IDs
 
-`remembrancer new` claims the ID and writes the whole entry in one step, so no other agent gets the same number. For an answer no question asked for (a decision), run `remembrancer next A --claim "title"`, which appends a stub, then fill it in. Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
+`remembrancer new` claims the ID and writes the whole entry in one step, so no other agent gets the same number. An answer takes its question's number (`remembrancer answer`); a decision takes a fresh one (`remembrancer decide`). Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
 
 **Never delete an entry that has an ID**: its number would be handed out again. Drop a task (`remembrancer drop`), close a question with an answer (even one that just says it was dropped), retire a rule, and turn an unwanted resource into a stub that says why it was dropped. Run `remembrancer lint` after editing; it reports duplicate IDs and numbers that no entry uses.
 
@@ -74,10 +81,10 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 - Something needs investigation but should not block you → `remembrancer new Q "title" --context=T###` (or the A### that raised it), say so in one line, and continue.
 - A task is finished → `remembrancer done T### --outcome "…"`. The outcome replaces the body: record the findings that later tasks need (decisions, gotchas, where things live), and leave out narration. A task that is no longer wanted → `remembrancer drop T### --reason "…"`.
 - Progress worth keeping on an open entry → `remembrancer append ID --section History --line "…"`; a changed field → `remembrancer set`.
-- A question is resolved → write the A entry with the same number (a hand edit until the `answer` command lands). Copy the question into **Question**, then write **Answer**, **Why**, **Alternatives considered**, and a `revisit-if:` condition that would make the answer worth revisiting. Delete the Q entry.
-  - The same decision settles other open questions too → list them in `closes:` on that answer and delete them as well.
-  - An answer settles only part of a question → split the question into narrower ones first. The answer that settles the last part closes it and lists the partial answers in `refs:`. Note progress on a question that stays open as a dated **History:** line citing the answer.
-  - A new answer changes an earlier one → `amends: A###` if both still stand; `supersedes: A###` (and `superseded-by:` on the old one) if the old one no longer does.
+- A question is resolved → `remembrancer answer Q### "title" --body - --revisit-if "…"`, with a body holding **Answer:**, **Why:** and **Alternatives considered:**; `revisit-if` is the condition that would make the answer worth revisiting. The command copies the question into **Question**, gives the answer the question's number, and removes the question.
+  - The same decision settles other open questions too → add `--closes Q###,Q###`; they are removed as well.
+  - An answer settles only part of a question → `--partial`: the answer takes a fresh number and the question stays, with a History line citing it. Or split the question into narrower ones first. The answer that settles the last part closes it and lists the partial answers in `--refs=A###`.
+  - A new answer changes an earlier one → `--amends A###` if both still stand, `--supersedes A###` if the old one no longer does (or `remembrancer amend` / `supersede OLD --by NEW` afterwards). Both ends are set.
 - Before you answer a new question, search `answers.md` and the archive. If it was already settled, follow that answer or say why its `revisit-if` now applies.
 - Keep short plans and working notes in `scratch.md`.
 - A source proves key to the domain, or is what finally cracked a hard question → `remembrancer new K "title" --link=… --consult-when=… --body -`: `link:` (URL, or a path relative to the project root), `consult-when:` (the areas or kinds of question it helps with, specific enough to match against a task), and a body with a line on what it is and **Takeaways:** (the facts that mattered). Only add sources you'd want to return to, not every page you opened. Link it from the tasks, answers and rules it informed (`refs: K004`).
@@ -101,9 +108,9 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
   - `form: heuristic`: guidance that needs judgement ("prefer deleting code to adding flags"). Treat each heuristic as a candidate for sharpening. When later work shows the precise version, rewrite it and move it up a form.
 - Every rule body has the rule, then **Why:**, then **Check:** (how a reviewer verifies it).
 - Merge overlapping rules and retire dead ones rather than letting the list grow.
-- **Rules can be wrong.** When work shows a rule is wrong or insufficient, do not quietly ignore it and do not quietly obey it. Set `status: challenged`, open a Q that links the rule and the evidence, and tell the user. When that Q is answered, either revise the rule in place (same meaning, sharper or corrected: bump `revised:` and add a dated line under **History:**), or retire it (`status: retired`, `superseded-by: R###`) and add a new rule with `supersedes: R###`.
+- **Rules can be wrong.** When work shows a rule is wrong or insufficient, do not quietly ignore it and do not quietly obey it. Open a Q that names the rule and the evidence (`remembrancer new Q`), run `remembrancer rule R### challenge --question Q###`, and tell the user. When that Q is answered, either revise the rule in place (same meaning, sharper or corrected: `remembrancer edit`, `set R### revised=YYYY-MM-DD`, and `append --section History`), or add a new rule and run `remembrancer rule R### retire --by R###` (or `supersede R### --by R###`), which retires the old one and links both.
 
-**Before a review or commit.** Read the `active` and `challenged` rules. Run the `enforced-by` checks for the rules the change touches. Check the diff against the property and heuristic rules. Report which R IDs apply, which pass, and which are broken, and fix the broken ones or say why not. Set `reviewed:` on the rules you actually checked (`remembrancer set R### reviewed=YYYY-MM-DD`).
+**Before a review or commit.** Read the `active` and `challenged` rules. Run the `enforced-by` checks for the rules the change touches. Check the diff against the property and heuristic rules. Report which R IDs apply, which pass, and which are broken, and fix the broken ones or say why not. Mark the rules you actually checked with `remembrancer rule R### reviewed`.
 
 **When stuck** (the same fix has failed twice, or you are going in circles):
 1. Stop editing code.
@@ -118,7 +125,7 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 - `status`: the session-start summary, plus `remembrancer lint` problems.
 - `plan`: the planning procedure above, for the next wave of work.
 - `review`: the before-commit check above, run against the staged or working diff.
-- `curate`: for each done entry older than about 30 days, move any lasting knowledge into an answer or a proposed rule, then archive it (`archive/done-YYYY.md`). Also flag stale todos and questions, proposed rules awaiting a decision, and rules not reviewed in 90 days. Propose the changes to the user and let them decide.
+- `curate`: for each done entry older than about 30 days, move any lasting knowledge into an answer or a proposed rule, then archive it (`remembrancer move T### --to archive`, which files it in `archive/done-YYYY.md`). Also flag stale todos and questions, proposed rules awaiting a decision, and rules not reviewed in 90 days. Propose the changes to the user and let them decide.
 - `stuck`: the procedure above.
 
 ## Style

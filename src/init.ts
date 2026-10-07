@@ -1,7 +1,8 @@
 import { existsSync, realpathSync, rmSync, statSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import type { Problem } from "./analyse";
+import { INVERSE, type Problem, missingInverses } from "./analyse";
+import { addInverses } from "./commands";
 import { DIR, FILES, LOCK, LOCK_STALE_MS, loadProject, visibility } from "./project";
 import answers from "../skill/templates/answers.md" with { type: "text" };
 import done from "../skill/templates/done.md" with { type: "text" };
@@ -109,8 +110,18 @@ export async function doctor(root: string, { fix = false } = {}): Promise<Doctor
     }
   }
 
-  for (const [id, list] of (await loadProject(root)).byId) {
+  const project = await loadProject(root);
+  for (const [id, list] of project.byId) {
     if (list.length > 1) problems.push({ file: list[0].file, id, message: `duplicate id ${id} in ${list.map((e) => e.file).join(", ")}: renumber one by hand` });
+  }
+
+  // A relation recorded at one end only: lint reports it, and --fix adds the other end.
+  const missing = missingInverses(project);
+  if (fix) fixed.push(...(await addInverses(root, missing)));
+  else {
+    for (const [e, key, target] of missing) {
+      problems.push({ file: target.file, id: target.id, message: `${e.id} ${key} ${target.id}, but ${target.id} has no "${INVERSE[key]}: ${e.id}"` });
+    }
   }
   return { problems, fixed };
 }

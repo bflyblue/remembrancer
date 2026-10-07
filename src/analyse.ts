@@ -136,7 +136,31 @@ export function valueProblems(file: string, meta: Record<string, string>): strin
 }
 
 // Keys whose values must be IDs of one kind; `same` means the entry's own kind.
-const LINK_KINDS: Record<string, string> = { closes: "Q", amends: "A", supersedes: "same", "superseded-by": "same" };
+const LINK_KINDS: Record<string, string> = { closes: "Q", amends: "same", "amended-by": "same", supersedes: "same", "superseded-by": "same" };
+
+// Relations kept at both ends: each key and its inverse.
+export const INVERSE: Record<string, string> = {
+  supersedes: "superseded-by",
+  "superseded-by": "supersedes",
+  amends: "amended-by",
+  "amended-by": "amends",
+};
+
+// Every relation whose other end is missing: [entry, key, target], meaning
+// `target` should list `entry` under INVERSE[key].
+export function missingInverses(project: Project): [entry: Entry, key: string, target: Entry][] {
+  const out: [Entry, string, Entry][] = [];
+  for (const e of project.entries) {
+    if (!e.id) continue;
+    for (const [key, inverse] of Object.entries(INVERSE)) {
+      for (const id of mentions(e.meta[key] ?? "")) {
+        const other = project.byId.get(id)?.[0];
+        if (other && !mentions(other.meta[inverse] ?? "").includes(e.id)) out.push([e, key, other]);
+      }
+    }
+  }
+  return out;
+}
 
 // Where a stub goes to fill a gap in each sequence.
 const GAP_HINT: [kind: Kind, file: string, hint: string][] = [
@@ -186,9 +210,6 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
     }
     for (const target of mentions(e.meta.supersedes ?? "")) {
       const old = project.byId.get(target)?.[0];
-      if (old && !mentions(old.meta["superseded-by"] ?? "").includes(e.id)) {
-        report(e, `supersedes ${target}, but ${target} has no "superseded-by: ${e.id}"`);
-      }
       if (old && e.kind === "R" && old.meta.status !== "retired") report(e, `supersedes ${target}, but ${target} is not retired`);
     }
     if (ids) continue;
@@ -197,6 +218,10 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
     }
     for (const message of valueProblems(e.file, e.meta)) report(e, message);
     if (e.kind === "A" && !/\*\*Question\*\*/.test(e.body)) report(e, `answer has no **Question** section`);
+  }
+
+  for (const [e, key, other] of missingInverses(project)) {
+    report(e, `${key} ${other.id}, but ${other.id} has no "${INVERSE[key]}: ${e.id}" (doctor --fix adds it)`);
   }
 
   for (const q of inFile(project, "questions.md")) {

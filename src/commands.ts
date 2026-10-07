@@ -5,8 +5,8 @@
 // (`show`) take no lock.
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { type Problem, lint, requiredKeys, valueProblems } from "./analyse";
-import { type Entry, type Kind, type ParsedFile, ID_RE, appendEntry, formatEntry, mentions, parseFile, prependEntry, removeEntry, spliceEntry, today, withMeta } from "./model";
+import { INVERSE, type Problem, lint, requiredKeys, valueProblems } from "./analyse";
+import { type Entry, type Kind, type ParsedFile, ID_RE, appendEntry, daysSince, formatEntry, mentions, parseFile, prependEntry, removeEntry, spliceEntry, today, withMeta } from "./model";
 import {
   ConflictError,
   DIR,
@@ -250,11 +250,12 @@ async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => stri
   });
 }
 
-// Move an entry into archive/<stem>-YYYY.md (year of its `done:` or `answered:` date).
+// Move an entry into archive/<stem>-YYYY.md: the year of its `done:`, `answered:`,
+// `added:` or `asked:` date, the first it has.
 export async function archiveEntry(root: string, ref: EntryRef) {
   if (ref.file.startsWith("archive/")) throw new NotFoundError(`${ref.id} is already archived`);
   const stem = ref.file.replace(/\.md$/, "");
-  const year = (e: Entry) => (e.meta.done ?? e.meta.answered ?? today()).slice(0, 4);
+  const year = (e: Entry) => ([e.meta.done, e.meta.answered, e.meta.added, e.meta.asked].find((d) => daysSince(d) !== null) ?? today()).slice(0, 4);
   return moveEntry(root, ref, (e) => `archive/${stem}-${year(e)}.md`, `# Archive: ${stem}\n`, (e) => stamp(e));
 }
 
@@ -282,6 +283,190 @@ export async function replaceFile(root: string, rel: string, hash: string, text:
     const file = await readParsed(root, rel);
     if (file.hash !== hash) throw new ConflictError(rel);
     await writeAtomic(join(root, DIR, rel), text);
+  });
+}
+
+// ---- changes over several entries ----
+
+// Pending texts for a change that touches several entries, possibly in
+// several files, computed over the project as loaded under the lock. Each
+// step re-parses its file, so steps on the same file compose.
+export class Changes {
+  private texts = new Map<string, string>();
+  constructor(private before: Project) {}
+
+  private text(rel: string): string {
+    return this.texts.get(rel) ?? this.before.files.find((f) => f.path === rel)?.text ?? "";
+  }
+
+  private current(id: string): { file: ParsedFile; entry: Entry } {
+    const rel = locate(this.before, id).file;
+    const file = parseFile(rel, this.text(rel));
+    const entry = file.entries.find((e) => e.id === id);
+    if (!entry) throw new NotFoundError(`${id} was already removed by this change`);
+    return { file, entry };
+  }
+
+  change(id: string, fn: (e: Entry) => string) {
+    const { file, entry } = this.current(id);
+    this.texts.set(file.path, spliceEntry(file, entry.index, fn(entry)));
+  }
+
+  remove(id: string) {
+    const { file, entry } = this.current(id);
+    this.texts.set(file.path, removeEntry(file, entry.index));
+  }
+
+  append(rel: string, raw: string) {
+    if (!this.text(rel)) throw new NotFoundError(`${DIR}/${rel} does not exist (run: remembrancer init)`);
+    this.texts.set(rel, appendEntry(this.text(rel), raw));
+  }
+
+  // In the order each file was first changed: callers add before they remove.
+  writes(): [string, string][] {
+    return [...this.texts];
+  }
+}
+
+// A list field with `id` added once: "A001, A002".
+export function addTo(list: string | undefined, id: string): string {
+  return [...new Set([...mentions(list ?? ""), id])].join(", ");
+}
+
+// The one entry `id` names, of one of `kinds`, optionally in one file.
+function need(project: Project, id: string, kinds: Kind[], file?: string, what = ""): Entry {
+  const e = locate(project, id.toUpperCase());
+  if (!kinds.includes(e.kind!) || (file && e.file !== file)) throw new RefusedError(`${e.id} is not ${what || `a ${kinds.join(" or ")}`}`);
+  return e;
+}
+
+// The sections an answer's body must have; `**Name**` or `**Name:**`.
+const ANSWER_SECTIONS = ["Answer", "Why", "Alternatives considered"];
+
+export interface AnswerOptions {
+  title: string;
+  body: string;
+  revisitIf?: string;
+  closes?: string[];
+  amends?: string[];
+  supersedes?: string[];
+  partial?: boolean;
+  ifHash?: string; // the question's hash, as `show` printed it
+  fields?: Record<string, string>;
+}
+
+// Answer question `qid` (or, with null, record a decision no question asked
+// for). The answer takes the question's number, or a fresh one for a
+// decision or a partial answer. Its body starts with **Question**: the
+// question's title, ID and body. The question and every one it closes are
+// removed in the same step; a partial answer leaves the question with a
+// History line instead. `supersedes` and `amends` set both ends.
+export async function answerQuestion(root: string, qid: string | null, o: AnswerOptions): Promise<string> {
+  checkTitle(o.title);
+  const missing = ANSWER_SECTIONS.filter((s) => !new RegExp(`\\*\\*${s}:?\\*\\*`).test(o.body));
+  if (missing.length) throw new RefusedError(`the body needs ${missing.map((s) => `**${s}:**`).join(", ")} (it has no ${missing.join(", ")})`);
+  if (o.partial && !qid) throw new RefusedError("--partial answers a question: name it");
+  if (o.partial && o.closes?.length) throw new RefusedError("a partial answer closes nothing: the answer that settles the last part closes the question");
+  const extra = { ...(o.fields ?? {}), ...(o.revisitIf !== undefined ? { "revisit-if": o.revisitIf } : {}) };
+  checkValues("answers.md", extra);
+  return withFiles(root, async (before) => {
+    const q = qid ? need(before, qid, ["Q"], "questions.md", "an open question") : null;
+    if (q && o.ifHash !== undefined && q.hash !== o.ifHash) throw new ConflictError("questions.md", `${q.id} changed since it was read`);
+    const id = q && !o.partial ? "A" + q.id!.slice(1) : nextId(before, "A");
+    if (before.byId.has(id)) throw new RefusedError(`${id} already exists: answer with --partial, or supersede ${id}`);
+    const closes = (o.closes ?? []).map((c) => need(before, c, ["Q"], "questions.md", "an open question").id!);
+    if (q && closes.includes(q.id!)) throw new RefusedError(`${q.id} is the question being answered; --closes lists the others`);
+    const amends = (o.amends ?? []).map((a) => need(before, a, ["A"]).id!);
+    const supersedes = (o.supersedes ?? []).map((a) => need(before, a, ["A"]).id!);
+
+    const { asked: _, ...carried } = q?.meta ?? {};
+    const meta: Record<string, string> = { answered: today(), ...carried, ...extra };
+    if (closes.length) meta.closes = closes.join(", ");
+    if (amends.length) meta.amends = amends.join(", ");
+    if (supersedes.length) meta.supersedes = supersedes.join(", ");
+    const question = q ? `**Question** ${q.title} (${q.id})${q.body ? "\n\n" + q.body : ""}` : "**Question** (a decision; no question asked)";
+
+    const changes = new Changes(before);
+    changes.append("answers.md", formatEntry({ id, title: o.title.trim(), meta, body: `${question}\n\n${o.body.trim()}` }));
+    for (const old of supersedes) changes.change(old, (e) => stamp(e, { "superseded-by": addTo(e.meta["superseded-by"], id) }));
+    for (const old of amends) changes.change(old, (e) => stamp(e, { "amended-by": addTo(e.meta["amended-by"], id) }));
+    if (q && o.partial) changes.change(q.id!, (e) => rewrite(e, { body: appendToSection(e.body, "History", `${id} settles part of this`) }));
+    else if (q) for (const c of [q.id!, ...closes]) changes.remove(c);
+    return { writes: changes.writes(), result: id };
+  });
+}
+
+// `newer` supersedes (or amends) `older`: both ends set, lists extended. A
+// superseded rule is retired, with a History line.
+function relate(changes: Changes, before: Project, rel: "supersedes" | "amends", olderId: string, newerId: string) {
+  const older = need(before, olderId, ["A", "R"]);
+  const newer = need(before, newerId, [older.kind!], undefined, `a ${older.kind} like ${older.id}`);
+  if (older.id === newer.id) throw new RefusedError(`${older.id} cannot ${rel === "supersedes" ? "supersede" : "amend"} itself`);
+  changes.change(newer.id!, (e) => stamp(e, { [rel]: addTo(e.meta[rel], older.id!) }));
+  const inverse = INVERSE[rel];
+  changes.change(older.id!, (e) => {
+    const updates = { [inverse]: addTo(e.meta[inverse], newer.id!) };
+    if (rel === "supersedes" && e.kind === "R") {
+      return rewrite(e, { updates: { ...updates, status: "retired" }, body: appendToSection(e.body, "History", `retired: superseded by ${newer.id}`) });
+    }
+    return stamp(e, updates);
+  });
+}
+
+export async function supersede(root: string, olderId: string, newerId: string) {
+  await withFiles(root, async (before) => {
+    const changes = new Changes(before);
+    relate(changes, before, "supersedes", olderId, newerId);
+    return { writes: changes.writes(), result: undefined };
+  });
+}
+
+export async function amend(root: string, olderId: string, newerId: string) {
+  await withFiles(root, async (before) => {
+    const changes = new Changes(before);
+    relate(changes, before, "amends", olderId, newerId);
+    return { writes: changes.writes(), result: undefined };
+  });
+}
+
+export type RuleAction = "activate" | "retire" | "challenge" | "reviewed";
+
+// A rule's life: its status, with a dated History line. `challenge` needs an
+// open question that mentions the rule; `retire --by` is a supersession;
+// `reviewed` only dates the review.
+export async function ruleAction(root: string, rid: string, action: RuleAction, { by, question }: { by?: string; question?: string } = {}) {
+  if (action === "challenge" && !question) throw new RefusedError("challenge needs --question Q### (an open question that mentions the rule)");
+  await withFiles(root, async (before) => {
+    const r = need(before, rid, ["R"], "rules.md", "a rule in rules.md");
+    const changes = new Changes(before);
+    if (action === "retire" && by) relate(changes, before, "supersedes", r.id!, by);
+    else if (action === "reviewed") changes.change(r.id!, (e) => stamp(e, { reviewed: today() }));
+    else {
+      let line = action === "activate" ? "activated" : "retired";
+      if (action === "challenge") {
+        const q = need(before, question!, ["Q"], "questions.md", "an open question");
+        if (!mentions(q.raw).includes(r.id!)) throw new RefusedError(`${q.id} does not mention ${r.id}: say in the question how the rule is in doubt`);
+        line = `challenged: see ${q.id}`;
+      }
+      const status = { activate: "active", retire: "retired", challenge: "challenged" }[action];
+      changes.change(r.id!, (e) => rewrite(e, { updates: { status }, body: appendToSection(e.body, "History", line) }));
+    }
+    return { writes: changes.writes(), result: undefined };
+  });
+}
+
+// Add each missing other end of a supersedes/amends relation (doctor --fix).
+export async function addInverses(root: string, missing: [entry: Entry, key: string, target: Entry][]): Promise<string[]> {
+  if (!missing.length) return [];
+  return withFiles(root, async (before) => {
+    const changes = new Changes(before);
+    const done: string[] = [];
+    for (const [e, key, target] of missing) {
+      const inverse = INVERSE[key];
+      changes.change(target.id!, (t) => stamp(t, { [inverse]: addTo(t.meta[inverse], e.id!) }));
+      done.push(`added "${inverse}: ${e.id}" to ${target.id}`);
+    }
+    return { writes: changes.writes(), result: done };
   });
 }
 
