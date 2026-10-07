@@ -207,7 +207,17 @@ Free-form notes and the plan for one session, under a `# Session YYYY-MM-DD` hea
 
 ## config.json
 
-Optional: `{"owner": "shaun"}`. The owner is whose `waiting-on` entries the brief lists first, under "Waiting on you", and whom `remembrancer waiting` shows by default. `remembrancer lint` reports a file that is not valid JSON.
+Optional, and every key in it is optional:
+
+```json
+{ "owner": "shaun", "stale": { "T": 30, "Q": 14, "A": 90, "R": 90, "K": 90 }, "knowledge-base": false }
+```
+
+- `owner`: whose `waiting-on` entries the brief lists first, under "Waiting on you", whom `remembrancer waiting` shows by default, and whom a curator's `flag` waits on.
+- `stale`: days without change after which `remembrancer stale` counts an entry of that kind (if nothing live cites it). The values above are the defaults; give only the kinds you change.
+- `knowledge-base`: `true` archives into `kb/<file>.md` instead of `archive/<file>-<year>.md`, and reads `kb/` as part of the project. Off, a `kb/` folder is ignored.
+
+`remembrancer lint` reports a file that is not valid JSON, or a key with the wrong shape.
 
 ## Encoding
 
@@ -215,4 +225,23 @@ Every file is UTF-8. `remembrancer lint` and `remembrancer doctor` name any line
 
 ## archive/
 
-`archive/done-YYYY.md` holds curated done entries, grouped by the year of their `done:` date, newest first. The entries keep their IDs, so old links still resolve.
+`archive/<file>-YYYY.md` (for any file: `done-2026.md`, `answers-2026.md`) holds archived entries, grouped by the year of their `done:`, `answered:`, `added:` or `asked:` date, newest first. The entries keep their IDs, so old links still resolve, and follow the rules of the file they came from. Other names in `archive/` are left alone.
+
+## kb/
+
+With `"knowledge-base": true` in config.json, archiving moves an entry to `kb/<file>.md` (`kb/answers.md`) instead: the long-lived knowledge, read by `show`, lint and the UI like the active files. Moving an entry there never deletes it; its ID still resolves.
+
+## Curation metadata
+
+Set by `remembrancer apply` and the curators, optional everywhere:
+
+| key | values |
+|---|---|
+| importance | `high`, `normal` or `low`: how much an archived entry still matters |
+| suggest | `archive`: a curator's suggestion, waiting for a person or a strong model to act on |
+| condensed-from | on a theme entry: the IDs it condenses |
+| condensed-into | on a condensed entry: the theme entry that holds its knowledge now |
+
+## log/
+
+`log/curation.md` is append-only: one line per applied action, with its time, what changed, who proposed it and why. It is not parsed as entries, and `doctor --fix` keeps `log/` out of commits.

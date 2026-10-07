@@ -1,7 +1,7 @@
 import { attention, inFile, openTodos } from "./analyse";
 import { type Entry, daysSince } from "./model";
 import type { Project } from "./project";
-import { STALE_DAYS, currentPhase, finishedPlans, stale, tagsOf, waiting } from "./signals";
+import { currentPhase, staleDays, finishedPlans, stale, tagsOf, waiting } from "./signals";
 
 const MAX_TODOS = 6;
 const MAX_NEXT = 4;
@@ -46,7 +46,7 @@ export interface BriefData {
   inbox: number;
   finishedPlans: BriefEntry[]; // open plans with every child done: ready to close
   rules: { id: string; title: string; status: string; form: string | null; tested: boolean; checked: string | null; reviewed: string | null }[];
-  stale: { count: number; byKind: Record<string, number> };
+  stale: { count: number; byKind: Record<string, number>; days: Record<string, number> };
   checks: null; // { pass, fail, unrunnable } once rule checks run (a later slice)
   todos: (BriefEntry & { blockedBy: string[] })[]; // open and triaged, in order
   questions: (BriefEntry & { age: number | null })[];
@@ -101,7 +101,7 @@ export function briefData(project: Project, now = new Date(), visibility: "priva
         checked: r.meta.checked ?? null,
         reviewed: r.meta.reviewed ?? null,
       })),
-    stale: { count: staleList.length, byKind },
+    stale: { count: staleList.length, byKind, days: staleDays(project) },
     checks: null,
     todos: todos.filter((t) => t.meta.status !== "inbox").map((t) => ({ ...summary(t), blockedBy: t.blockedBy })),
     questions: inFile(project, "questions.md").map((q) => ({ ...summary(q), age: daysSince(q.meta.asked, now) })),
@@ -152,7 +152,7 @@ export function renderBrief(d: BriefData): string {
   if (challenged.length) decide.push(`challenged rules: ${challenged.map((r) => r.id).join(", ")}`);
   if (d.stale.count) {
     const kinds = Object.entries(d.stale.byKind).map(([k, n]) => `${n} ${k}`).join(", ");
-    decide.push(`${plural(d.stale.count, "stale entry", "stale entries")} (${kinds}), unchanged and uncited for ${Object.entries(STALE_DAYS).map(([k, n]) => `${k} ${n}d`).join(", ")}: remembrancer stale`);
+    decide.push(`${plural(d.stale.count, "stale entry", "stale entries")} (${kinds}), unchanged and uncited for ${Object.entries(d.stale.days).map(([k, n]) => `${k} ${n}d`).join(", ")}: remembrancer stale`);
   }
   if (decide.length) lines.push("", "To decide:", ...decide.map((s) => `  ${s}`));
 

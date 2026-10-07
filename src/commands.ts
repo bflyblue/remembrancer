@@ -16,6 +16,7 @@ import {
   RefusedError,
   checkedEntry,
   isValidFile,
+  kbOn,
   loadProject,
   nextId,
   readParsed,
@@ -63,6 +64,13 @@ export function stamp(e: Entry, updates: Record<string, string> = {}): string {
 
 const problemKey = (p: Problem) => `${p.id ?? ""}\u0000${p.message}`;
 
+// The `lint --ids` problems `after` has that `before` didn't (keyed by ID and
+// message, so a moved entry keeps its old ones).
+export function lintAdded(before: Project, after: Project): Problem[] {
+  const known = new Set(lint(before, { ids: true }).map(problemKey));
+  return lint(after, { ids: true }).filter((p) => !known.has(problemKey(p)));
+}
+
 // Write each file, then lint IDs and links. Problems the project already had
 // don't count (keyed by ID and message, so a moved entry keeps its old ones);
 // a new one restores every file as it was and refuses the write. Call under
@@ -75,8 +83,7 @@ async function commit(root: string, before: Project, writes: [rel: string, text:
     old.set(rel, (await Bun.file(path).exists()) ? await Bun.file(path).text() : null);
   }
   for (const [rel, text] of writes) await writeAtomic(join(root, DIR, rel), text);
-  const known = new Set(lint(before, { ids: true }).map(problemKey));
-  const added = lint(await loadProject(root), { ids: true }).filter((p) => !known.has(problemKey(p)));
+  const added = lintAdded(before, await loadProject(root));
   if (!added.length) return;
   for (const [rel, text] of [...old].reverse()) {
     if (text === null) rmSync(join(root, DIR, rel), { force: true });
@@ -124,7 +131,7 @@ function checkTitle(title: string) {
 }
 
 // Refuse values lint would reject in this file (enums, dates).
-function checkValues(file: string, updates: Record<string, string>) {
+export function checkValues(file: string, updates: Record<string, string>) {
   checkFields(updates);
   const bad = valueProblems(file, updates);
   if (bad.length) throw new RefusedError(bad.join("; "));
@@ -236,9 +243,9 @@ export async function claimId(root: string, kind: Kind, title: string): Promise<
 
 // Move an entry to the top of another file. The target is written first, so
 // a crash in between leaves a duplicate (which lint reports), never a loss.
-async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => string, header: string, change: (e: Entry) => string) {
+async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => { to: string; header: string }, change: (e: Entry) => string) {
   return withEntry(root, ref, async (file, entry) => {
-    const to = target(entry);
+    const { to, header } = target(entry);
     const existing = await readParsed(root, to);
     return {
       writes: [
@@ -252,11 +259,20 @@ async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => stri
 
 // Move an entry into archive/<stem>-YYYY.md: the year of its `done:`, `answered:`,
 // `added:` or `asked:` date, the first it has.
+// Where an archived entry goes: kb/<stem>.md when the knowledge base is on,
+// else archive/<stem>-<year>.md by the year of its `done:`, `answered:`,
+// `added:` or `asked:` date (the first it has).
+export function archiveTarget(e: Entry, kb: boolean): { to: string; header: string } {
+  if (/^(archive|kb)\//.test(e.file)) throw new RefusedError(`${e.id} is already in ${e.file}`);
+  const stem = e.file.replace(/\.md$/, "");
+  if (kb) return { to: `kb/${stem}.md`, header: `# Knowledge base: ${stem}\n` };
+  const year = ([e.meta.done, e.meta.answered, e.meta.added, e.meta.asked].find((d) => daysSince(d) !== null) ?? today()).slice(0, 4);
+  return { to: `archive/${stem}-${year}.md`, header: `# Archive: ${stem}\n` };
+}
+
 export async function archiveEntry(root: string, ref: EntryRef) {
-  if (ref.file.startsWith("archive/")) throw new NotFoundError(`${ref.id} is already archived`);
-  const stem = ref.file.replace(/\.md$/, "");
-  const year = (e: Entry) => ([e.meta.done, e.meta.answered, e.meta.added, e.meta.asked].find((d) => daysSince(d) !== null) ?? today()).slice(0, 4);
-  return moveEntry(root, ref, (e) => `archive/${stem}-${year(e)}.md`, `# Archive: ${stem}\n`, (e) => stamp(e));
+  const kb = kbOn(root);
+  return moveEntry(root, ref, (e) => archiveTarget(e, kb), (e) => stamp(e));
 }
 
 // Move a todo to the top of done.md, stamping today's date; `outcome`
@@ -266,13 +282,18 @@ export async function archiveEntry(root: string, ref: EntryRef) {
 export async function completeEntry(root: string, ref: EntryRef, { dropped = false, outcome, reason }: { dropped?: boolean; outcome?: string; reason?: string } = {}) {
   if (ref.file !== "todo.md") throw new NotFoundError(`${ref.id} is not an open todo`);
   if (reason !== undefined && (!reason.trim() || /\n/.test(reason))) throw new RefusedError("a reason is one non-empty line");
-  const updates = { done: today(), ...(dropped ? { dropped: "yes" } : {}) };
-  return moveEntry(root, ref, () => "done.md", "# Done\n", (e) => {
-    // A finished task leaves the inbox and waits on no one.
-    const u = { ...updates, ...(e.meta.status === "inbox" ? { status: "" } : {}), ...(e.meta["waiting-on"] ? { "waiting-on": "" } : {}) };
-    const body = outcome ?? (reason !== undefined ? `Dropped: ${reason.trim()}${e.body ? "\n\n" + e.body : ""}` : undefined);
-    return rewrite(e, { updates: u, body });
-  });
+  return moveEntry(root, ref, () => ({ to: "done.md", header: DONE_HEADER }), (e) => finishedRaw(e, { dropped, outcome, reason }));
+}
+
+export const DONE_HEADER = "# Done\n";
+
+// A todo as it goes to done.md: dated, the outcome as its body (or the reason
+// for dropping it above its body). A finished task leaves the inbox and waits
+// on no one.
+export function finishedRaw(e: Entry, { dropped = false, outcome, reason }: { dropped?: boolean; outcome?: string; reason?: string }): string {
+  const updates = { done: today(), ...(dropped ? { dropped: "yes" } : {}), ...(e.meta.status === "inbox" ? { status: "" } : {}), ...(e.meta["waiting-on"] ? { "waiting-on": "" } : {}) };
+  const body = outcome ?? (reason !== undefined ? `Dropped: ${reason.trim()}${e.body ? "\n\n" + e.body : ""}` : undefined);
+  return rewrite(e, { updates, body });
 }
 
 // Replace a whole file (the UI's scratch editor), checked against its file hash.
@@ -321,6 +342,20 @@ export class Changes {
   append(rel: string, raw: string) {
     if (!this.text(rel)) throw new NotFoundError(`${DIR}/${rel} does not exist (run: remembrancer init)`);
     this.texts.set(rel, appendEntry(this.text(rel), raw));
+  }
+
+  // Move an entry to the top of `to` (started with `header` if new), changed by
+  // `fn`. The target is written first, so a crash between leaves a duplicate.
+  move(id: string, to: string, header: string, fn: (e: Entry) => string) {
+    const { entry } = this.current(id);
+    const raw = fn(entry);
+    this.texts.set(to, prependEntry(this.text(to) || header, raw));
+    this.remove(id);
+  }
+
+  // The entry as this change has it so far.
+  get(id: string): Entry {
+    return this.current(id).entry;
   }
 
   // In the order each file was first changed: callers add before they remove.
@@ -400,7 +435,7 @@ export async function answerQuestion(root: string, qid: string | null, o: Answer
 
 // `newer` supersedes (or amends) `older`: both ends set, lists extended. A
 // superseded rule is retired, with a History line.
-function relate(changes: Changes, before: Project, rel: "supersedes" | "amends", olderId: string, newerId: string) {
+export function relate(changes: Changes, before: Project, rel: "supersedes" | "amends", olderId: string, newerId: string) {
   const older = need(before, olderId, ["A", "R"]);
   const newer = need(before, newerId, [older.kind!], undefined, `a ${older.kind} like ${older.id}`);
   if (older.id === newer.id) throw new RefusedError(`${older.id} cannot ${rel === "supersedes" ? "supersede" : "amend"} itself`);

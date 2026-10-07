@@ -19,7 +19,7 @@
           # No npm dependencies: run the sources directly with bun.
           installPhase = ''
             mkdir -p $out/share/remembrancer $out/bin
-            cp -r src skill package.json $out/share/remembrancer/
+            cp -r src skill schema package.json $out/share/remembrancer/
             makeWrapper ${pkgs.bun}/bin/bun $out/bin/remembrancer \
               --add-flags $out/share/remembrancer/src/cli.ts
             ln -s remembrancer $out/bin/rmb

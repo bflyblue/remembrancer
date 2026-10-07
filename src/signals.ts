@@ -18,8 +18,13 @@ export function effectiveDate(e: Entry): string | null {
   return dates.length ? dates.sort().at(-1)! : null;
 }
 
-// Days without change after which an entry counts as stale, per kind.
+// Days without change after which an entry counts as stale, per kind: the
+// defaults, which config.json's `stale` overrides kind by kind.
 export const STALE_DAYS: Record<Kind, number> = { T: 30, Q: 14, A: 90, R: 90, K: 90 };
+
+export function staleDays(project: Project): Record<Kind, number> {
+  return { ...STALE_DAYS, ...(project.config.stale ?? {}) };
+}
 
 // The files whose entries can be stale: the active set, not the archive or scratch.
 const ACTIVE_FILES = ["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "resources.md"];
@@ -58,7 +63,7 @@ export function stale(project: Project, { days, kind, now = new Date() }: { days
     if (cited.has(e.id)) continue;
     const date = effectiveDate(e);
     const age = date ? daysSince(date, now) : null;
-    if (age !== null && age <= (days ?? STALE_DAYS[e.kind!])) continue;
+    if (age !== null && age <= (days ?? staleDays(project)[e.kind!])) continue;
     out.push({ id: e.id, kind: e.kind!, file: e.file, title: e.title, date, age });
   }
   return out.sort((a, b) => (b.age ?? Infinity) - (a.age ?? Infinity));

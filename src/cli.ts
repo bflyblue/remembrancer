@@ -5,6 +5,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { briefData, renderBrief } from "./brief";
 import { formatPlan, planTree, stale, waiting } from "./signals";
+import { LOG, ProposalsRefusedError, apply } from "./proposals";
 import { guard } from "./guard";
 import { LintRefusedError, type RuleAction, amend, answerQuestion, appendLine, archiveEntry, ruleAction, supersede, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
@@ -63,11 +64,17 @@ usage:
                                      retired)
   remembrancer rule R### activate | retire [--by R###] | challenge --question Q### | reviewed
                                      a rule's status, with a History line (reviewed: the date only)
-  remembrancer move ID --to archive  into archive/<file>-<year>.md
                                      Every write: locked, checked, stamped touched:, linted; a
                                      stale --if or a write that adds a lint problem exits 2 and
                                      changes nothing. --json on any of them prints {ok, id, file,
                                      hash}
+  remembrancer apply FILE [--dry-run] [--json]
+                                     apply a proposals file (schema/proposals.json: keep, archive,
+                                     drop, set, retag, link, flag) in one locked step, or refuse it
+                                     whole naming each bad action; logged in ${DIR}/log/curation.md.
+                                     --dry-run: check it and say what it would do, writing nothing
+  remembrancer move ID --to archive  archive/<file>-<year>.md, or kb/<file>.md when config.json has
+                                     "knowledge-base": true
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -374,6 +381,18 @@ async function main(argv: string[]) {
       }
       return;
     }
+    case "apply": {
+      const path = args.find((a) => !a.startsWith("--"));
+      if (!path) fail(2, "usage: remembrancer apply FILE [--dry-run] [--json]", json);
+      const dryRun = flag("--dry-run");
+      const applied = await apply(requireRoot(), resolve(path!), { dryRun });
+      if (json) console.log(JSON.stringify({ ok: true, dryRun, applied }, null, 2));
+      else {
+        for (const a of applied) console.log(`${a.action} ${a.id}: ${a.result}`);
+        console.log(dryRun ? `dry run: ${applied.length} action${applied.length === 1 ? "" : "s"} would apply; nothing written` : `applied ${applied.length}; logged in ${DIR}/${LOG}`);
+      }
+      return;
+    }
     case "brief": {
       const root = findRoot();
       if (!root) {
@@ -498,6 +517,7 @@ try {
   const json = process.argv.includes("--json");
   if (err instanceof NotFoundError) fail(1, err.message, json);
   if (err instanceof LintRefusedError) fail(2, err.message, json, err.problems);
+  if (err instanceof ProposalsRefusedError) fail(2, err.message, json, err.problems.map((message) => ({ file: null, id: null, message })));
   if (err instanceof RefusedError || err instanceof ConflictError) fail(2, err.message, json);
   throw err;
 }

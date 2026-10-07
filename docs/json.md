@@ -80,3 +80,12 @@ Entries are `{id, kind, file, title, meta}`. `phase` is null without a plan; `ch
 ```
 
 A plan node marked `"cycle": true` is its own ancestor and is not expanded again.
+
+## `apply FILE [--dry-run] --json`
+
+```json
+{ "ok": true, "dryRun": false, "applied": [ { "index": 3, "action": "archive", "id": "T004", "result": "→ archive/done-2025.md" } ] }
+```
+
+A refused file exits 2 with `{ok: false, error, problems: [{file: null, id: null, message: "action 2 (keep T001): stale if: …"}]}`.
+The input format is `schema/proposals.json`, each action `schema/action.json`.

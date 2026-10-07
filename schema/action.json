@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "action.json",
+  "title": "One remembrancer curation action",
+  "description": "One disposition for `remembrancer apply`. `why` is required on every action; `if` (optional) is the entry's hash as `remembrancer show` prints it, and a stale one refuses the whole file. For `link`, `if` is the hash of `from`.",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[TQARK][0-9]{3,}$" },
+    "tag": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "line": { "type": "string", "minLength": 1, "pattern": "^[^\\n]*$" },
+    "if": { "type": "string", "description": "the entry's hash when the action was written" }
+  },
+  "oneOf": [
+    {
+      "title": "keep: still current; stamps touched",
+      "type": "object",
+      "properties": { "action": { "const": "keep" }, "id": { "$ref": "#/$defs/id" }, "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" } },
+      "required": ["action", "id", "why"],
+      "additionalProperties": false
+    },
+    {
+      "title": "archive: move to archive/<stem>-<year>.md, or kb/<stem>.md with the knowledge base on; in gather mode, set suggest: archive instead",
+      "type": "object",
+      "properties": {
+        "action": { "const": "archive" }, "id": { "$ref": "#/$defs/id" }, "importance": { "enum": ["high", "normal", "low"] },
+        "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "id", "why"],
+      "additionalProperties": false
+    },
+    {
+      "title": "drop: an open todo goes to done.md, dropped, with the reason",
+      "type": "object",
+      "properties": {
+        "action": { "const": "drop" }, "id": { "$ref": "#/$defs/id" }, "reason": { "$ref": "#/$defs/line" },
+        "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "id", "reason", "why"],
+      "additionalProperties": false
+    },
+    {
+      "title": "set: change metadata fields; unset removes them",
+      "type": "object",
+      "properties": {
+        "action": { "const": "set" }, "id": { "$ref": "#/$defs/id" },
+        "fields": { "type": "object", "additionalProperties": { "type": "string" } },
+        "unset": { "type": "array", "items": { "type": "string" } },
+        "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "id", "why"],
+      "anyOf": [{ "required": ["fields"] }, { "required": ["unset"] }],
+      "additionalProperties": false
+    },
+    {
+      "title": "retag: add and remove words in tags:",
+      "type": "object",
+      "properties": {
+        "action": { "const": "retag" }, "id": { "$ref": "#/$defs/id" },
+        "add": { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+        "remove": { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+        "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "id", "why"],
+      "anyOf": [{ "required": ["add"] }, { "required": ["remove"] }],
+      "additionalProperties": false
+    },
+    {
+      "title": "link: from rel to; amends and supersedes set both ends, closes removes an open question",
+      "type": "object",
+      "properties": {
+        "action": { "const": "link" }, "from": { "$ref": "#/$defs/id" }, "rel": { "enum": ["refs", "amends", "supersedes", "closes"] },
+        "to": { "$ref": "#/$defs/id" }, "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "from", "rel", "to", "why"],
+      "additionalProperties": false
+    },
+    {
+      "title": "flag: the owner must decide; sets waiting-on and adds a History line",
+      "type": "object",
+      "properties": {
+        "action": { "const": "flag" }, "id": { "$ref": "#/$defs/id" }, "note": { "$ref": "#/$defs/line" },
+        "if": { "$ref": "#/$defs/if" }, "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "id", "note", "why"],
+      "additionalProperties": false
+    }
+  ]
+}

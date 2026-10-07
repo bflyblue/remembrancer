@@ -92,6 +92,8 @@ remembrancer brief --json    # the brief as data (docs/json.md)
 remembrancer stale [--days N] [--kind T]  # old entries nothing live cites: candidates to archive
 remembrancer waiting [--on WHO | --all]   # entries with waiting-on:, by who (default: the owner)
 remembrancer plan T030       # a plan's tree through after:, with each task's state and blockers
+remembrancer apply plan.json --dry-run  # check a proposals file (schema/proposals.json) and say what it
+                             # would do; without --dry-run, apply it in one step or refuse it whole
 remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…
 remembrancer lint --ids      # IDs and links only (fast; `--hook` reads a PostToolUse call on stdin)
 remembrancer show A012 T004  # whole entries, each with its hash (`--json` for data)
@@ -106,7 +108,7 @@ remembrancer serve [dirs…]   # web UI on http://127.0.0.1:4747 (several projec
 remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines (see below)
 ```
 
-Optional `.remembrancer/config.json`: `{"owner": "shaun"}` names whose `waiting-on:` entries the brief lists first.
+Optional `.remembrancer/config.json`: `{"owner": "shaun"}` names whose `waiting-on:` entries the brief lists first; `"stale": {"T": 30, …}` changes the staleness thresholds; `"knowledge-base": true` archives into `kb/<file>.md` (read as part of the project) instead of `archive/<file>-<year>.md`. See [format.md](skill/references/format.md#configjson).
 
 Every write command takes the lock, checks the entry (against `--if HASH` when given), stamps `touched:`, and lints the result: a write that would add a lint problem exits 2 and changes nothing. Agents should make every change this way; the PostToolUse lint hook catches hand edits and names the command that would have made them.
 

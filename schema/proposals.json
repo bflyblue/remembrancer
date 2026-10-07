@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "proposals.json",
+  "title": "A remembrancer proposals file",
+  "description": "Dispositions for `remembrancer apply`, applied in one locked step or refused whole. `mode` says who wrote it and so which actions it may take: manual (an agent or a person) and insight (a strong model's run) take every action; gather (a cheap model's run) only classifies, and its archive becomes `suggest: archive`.",
+  "type": "object",
+  "properties": {
+    "mode": { "enum": ["manual", "gather", "insight"] },
+    "packet": { "type": ["string", "null"], "description": "the hash of the curation packet the file answers, if any" },
+    "made": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "by": { "type": "string", "minLength": 1, "description": "who made it: claude, a script, a model's name" },
+    "actions": { "type": "array", "minItems": 1, "items": { "$ref": "action.json" } }
+  },
+  "required": ["mode", "made", "by", "actions"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "mode": { "const": "manual" } } },
+      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["keep", "archive", "drop", "set", "retag", "link", "flag"] } } } } } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "gather" } } },
+      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["retag", "link", "flag", "archive"] } } } } } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "insight" } } },
+      "then": { "properties": { "actions": { "items": { "properties": { "action": { "enum": ["keep", "archive", "drop", "set", "retag", "link", "flag"] } } } } } }
+    }
+  ]
+}

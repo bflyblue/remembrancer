@@ -125,7 +125,7 @@ describe("supersede, amend, rule, move", () => {
     expect(r.code).toBe(0);
     expect(r.out).toStartWith("A001 → archive/answers-2026.md");
     expect((await entry("A001"))!.file).toBe("archive/answers-2026.md");
-    expect(cli(["move", "A001", "--to", "archive"]).code).toBe(1);
+    expect(cli(["move", "A001", "--to", "archive"]).code).toBe(2);
     expect(cli(["move", "T001", "--to", "elsewhere"]).code).toBe(2);
   });
 });

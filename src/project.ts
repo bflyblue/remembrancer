@@ -16,10 +16,16 @@ export interface Project {
   configError: string | null; // why config.json could not be read, if it couldn't
 }
 
-// `.remembrancer/config.json`, optional. `owner`: whose decisions `waiting-on`
-// tracks first (the brief's "waiting on you").
+// `.remembrancer/config.json`, optional, every key optional:
+// - `owner`: whose decisions `waiting-on` tracks first (the brief's "waiting on you");
+// - `stale`: days without change after which an entry is stale, per kind
+//   (policy, so settable; the defaults are in signals.ts);
+// - `knowledge-base`: true to archive into kb/<stem>.md instead of
+//   archive/<stem>-<year>.md, and to read kb/ as part of the project.
 export interface Config {
   owner?: string;
+  stale?: Partial<Record<Kind, number>>;
+  "knowledge-base"?: boolean;
 }
 
 export const CONFIG = "config.json";
@@ -31,6 +37,12 @@ export function readConfig(root: string): { config: Config; error: string | null
     const data = JSON.parse(readFileSync(path, "utf8"));
     if (typeof data !== "object" || data === null || Array.isArray(data)) return { config: {}, error: "is not a JSON object" };
     if (data.owner !== undefined && (typeof data.owner !== "string" || !/^[\w-]+$/.test(data.owner))) return { config: {}, error: `owner must be one word` };
+    if (data.stale !== undefined) {
+      const ok = typeof data.stale === "object" && data.stale !== null && !Array.isArray(data.stale) &&
+        Object.entries(data.stale).every(([k, v]) => ["T", "Q", "A", "R", "K"].includes(k) && Number.isInteger(v) && (v as number) >= 0);
+      if (!ok) return { config: {}, error: `stale must map T, Q, A, R or K to a whole number of days, like {"T": 30}` };
+    }
+    if (data["knowledge-base"] !== undefined && typeof data["knowledge-base"] !== "boolean") return { config: {}, error: "knowledge-base must be true or false" };
     return { config: data as Config, error: null };
   } catch (err) {
     return { config: {}, error: `is not valid JSON (${(err as Error).message})` };
@@ -56,19 +68,30 @@ export function visibility(root: string): "private" | "committed" | null {
   return proc.exitCode === 0 ? "private" : proc.exitCode === 1 ? "committed" : null;
 }
 
+// The folders that hold entry files: the active set, the dated archive, and
+// the knowledge base (read only when config.json turns it on).
+export const DIRS = ["", "archive/", "kb/"] as const;
+
+export function kbOn(root: string): boolean {
+  return readConfig(root).config["knowledge-base"] === true;
+}
+
 export function listFiles(root: string): string[] {
-  const out: string[] = FILES.filter((f) => existsSync(join(root, DIR, f)));
-  const archive = join(root, DIR, "archive");
-  if (existsSync(archive)) {
-    for (const f of readdirSync(archive).sort().reverse()) {
-      if (f.endsWith(".md")) out.push(`archive/${f}`);
+  const out: string[] = [];
+  for (const dir of DIRS) {
+    if (dir === "") out.push(...FILES.filter((f) => existsSync(join(root, DIR, f))));
+    else if (dir !== "kb/" || kbOn(root)) {
+      const path = join(root, DIR, dir);
+      if (!existsSync(path)) continue;
+      const names = readdirSync(path).filter((f) => f.endsWith(".md")).sort();
+      out.push(...(dir === "archive/" ? names.reverse() : names).map((f) => dir + f));
     }
   }
   return out;
 }
 
 export function isValidFile(rel: string): boolean {
-  return (FILES as readonly string[]).includes(rel) || /^archive\/[\w.-]+\.md$/.test(rel);
+  return (FILES as readonly string[]).includes(rel) || /^(archive|kb)\/[\w.-]+\.md$/.test(rel);
 }
 
 // A file is read as UTF-8; the lines holding bytes that aren't valid UTF-8 are
@@ -88,7 +111,11 @@ export async function readParsed(root: string, rel: string): Promise<ParsedFile>
 }
 
 export async function loadProject(root: string): Promise<Project> {
-  const files = await Promise.all(listFiles(root).map((rel) => readParsed(root, rel)));
+  return buildProject(root, await Promise.all(listFiles(root).map((rel) => readParsed(root, rel))));
+}
+
+// A project from parsed files, read from disk or computed (a dry run).
+export function buildProject(root: string, files: ParsedFile[]): Project {
   const entries = files.flatMap((f) => f.entries);
   const byId = new Map<string, Entry[]>();
   for (const e of entries) {

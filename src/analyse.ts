@@ -99,7 +99,7 @@ const EXPECTED_KIND: Record<string, string> = {
 // Allowed values per file ("*": every file). A key a file doesn't list is free text there.
 const PRIORITY = ["P1", "P2", "P3"];
 const ENUMS: Record<string, Record<string, string[]>> = {
-  "*": { priority: PRIORITY },
+  "*": { priority: PRIORITY, importance: ["high", "normal", "low"], suggest: ["archive"] },
   "todo.md": { status: ["inbox"] },
   "rules.md": {
     scope: ["code", "design", "agent", "process"],
@@ -118,7 +118,8 @@ export const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "rev
 
 // The file whose rules an entry follows: an archive file keeps its stem's.
 export function baseFile(file: string): string {
-  return file.startsWith("archive/") ? file.replace(/^archive\/(\w+)-\d{4}\.md$/, "$1.md") : file;
+  // archive/answers-2026.md and kb/answers.md follow answers.md; other names (archive/legacy-ids.md) follow none.
+  return /^(archive|kb)\//.test(file) ? file.replace(/^(?:archive\/(\w+)-\d{4}|kb\/(\w+))\.md$/, "$1$2.md") : file;
 }
 
 // Keys an entry in `file` must have. An inbox todo (`status: inbox`) is a

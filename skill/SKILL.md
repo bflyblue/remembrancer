@@ -125,7 +125,10 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 - `status`: the session-start summary, plus `remembrancer lint` problems.
 - `plan`: the planning procedure above, for the next wave of work.
 - `review`: the before-commit check above, run against the staged or working diff.
-- `curate`: for each done entry older than about 30 days, move any lasting knowledge into an answer or a proposed rule, then archive it (`remembrancer move T### --to archive`, which files it in `archive/done-YYYY.md`). Also flag stale todos and questions, proposed rules awaiting a decision, and rules not reviewed in 90 days. Propose the changes to the user and let them decide.
+- `curate`:
+  1. Run `remembrancer stale` and read the brief's "To decide". For each candidate, `remembrancer show` it, and move any lasting knowledge into an answer (`decide`) or a proposed rule (`new R`) first.
+  2. Write a proposals file (format: `schema/proposals.json` in the remembrancer checkout; `"mode": "manual"`, `"by": "claude"`), one action per entry: `keep`, `archive` (with `importance`), `drop` (a todo, with `reason`), `set`, `retag`, `link` (`refs`, `amends`, `supersedes`, `closes`) or `flag` (the owner must decide; sets `waiting-on`). Give each a one-line `why`, and copy the entry's hash from `show` into `if`.
+  3. Run `remembrancer apply FILE --dry-run`, fix what it refuses, and show the user the list. Apply (`remembrancer apply FILE`) only what they agree to. Every applied action is logged in `.remembrancer/log/curation.md`.
 - `stuck`: the procedure above.
 
 ## Style
