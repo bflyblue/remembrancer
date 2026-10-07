@@ -232,3 +232,5 @@ what `stale` and `check` last said, in one line each; resources matching the cur
    a named group with members, stored as tags and links), `retag`, `link`, `flag` and `archive` (to suggest); `condense`
    and new entry text are refused unless the run is in `insight` mode. The gather runs' clusters become the insight
    runs' input.
+5. **Agents are strongly discouraged from editing the files directly** once the commands exist. The skill's instructions
+   say to make every change through the CLI, and the lint hook stays as a safety net for hand edits.
