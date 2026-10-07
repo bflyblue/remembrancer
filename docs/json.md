@@ -108,3 +108,14 @@ supersession chain, or an entry it closes. `neighbours` appears with `--neighbou
 ```
 
 `defined` lists every place the name is defined (more than one is a clash to rename).
+
+## `check [R###…] --json`
+
+```json
+{ "ok": false, "results": [
+  { "id": "R009", "title": "…", "status": "pass", "message": "passed", "command": "…", "seconds": 1.5 },
+  { "id": "R002", "title": "…", "status": "fail", "message": "exit 1", "command": "…", "seconds": 0.1, "tail": ["…the last 20 lines…"] },
+  { "id": "R004", "title": "…", "status": "skipped", "message": "no runner: enforced-by names a path only (check it by reading)" } ] }
+```
+
+Each rule's last result is also kept in `.remembrancer/log/checks.json`, which the brief's `checks` counts read.

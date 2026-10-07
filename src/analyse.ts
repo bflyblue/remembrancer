@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { drift } from "./anchors";
 import { type Entry, type Kind, daysSince, mentions, padId } from "./model";
 import { type Project, usedNumbers } from "./project";
@@ -59,7 +59,9 @@ export function attention(project: Project, now = new Date()): Attention[] {
     if (status === "proposed") add(e, "proposed-rule", "proposed: promote to active or drop");
     if (status === "challenged") add(e, "challenged-rule", "challenged: resolve the linked question");
     if (status === "active") {
-      const age = daysSince(e.meta.reviewed ?? e.meta.revised ?? e.meta.added, now);
+      // A passing machine check counts as a review (`checked:`), as a reading does (`reviewed:`).
+      const last = [e.meta.reviewed, e.meta.checked, e.meta.revised, e.meta.added].filter((d) => daysSince(d) !== null).sort().at(-1);
+      const age = daysSince(last, now);
       if (age !== null && age > THRESHOLDS.ruleReviewDays) add(e, "unreviewed-rule", `not reviewed for ${age} days`);
       if (e.meta.form === "heuristic") add(e, "sharpen-rule", "heuristic: can it be stated as a property?");
     }
@@ -115,7 +117,7 @@ const FORMATS: Record<string, [RegExp, string]> = {
   tags: [/^[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*$/, "comma-separated words of a-z, 0-9 and -"],
 };
 
-export const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised", "touched"];
+export const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised", "touched", "checked"];
 
 // The file whose rules an entry follows: an archive file keeps its stem's.
 export function baseFile(file: string): string {
@@ -269,8 +271,10 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
   const openQuestionText = inFile(project, "questions.md").map((q) => q.raw).join("\n");
   for (const r of inFile(project, "rules.md")) {
     if (r.meta["enforced-by"]) {
-      const path = r.meta["enforced-by"].split(/[:\s]/)[0];
-      if (path && !existsSync(join(project.root, path))) report(r, `enforced-by ${path} does not exist`);
+      // A test's file or a bare path must exist where checks run; a command is not checked here.
+      const form = parseEnforcedBy(r.meta["enforced-by"]);
+      if (form.kind === "bad") report(r, form.message);
+      else if (form.kind !== "cmd" && !existsSync(join(checkDir(project), form.file))) report(r, `enforced-by ${form.file} does not exist`);
     }
     if (r.meta.status === "challenged" && !mentions(openQuestionText).includes(r.id!)) {
       report(r, `challenged, but no open question mentions ${r.id}`);
@@ -280,4 +284,29 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
   // and cited anchors no tracked file defines.
   for (const d of drift(project)) report(d.entry, d.message);
   return problems;
+}
+
+// A rule's `enforced-by:` in one of three forms (see check.ts): a test
+// (`path: "test name"`), a command (`cmd: …`), or a bare path.
+export type Form =
+  | { kind: "test"; file: string; name: string }
+  | { kind: "cmd"; command: string }
+  | { kind: "path"; file: string }
+  | { kind: "bad"; message: string };
+
+export function parseEnforcedBy(value: string): Form {
+  const v = value.trim();
+  let m = /^cmd:\s*(.+)$/.exec(v);
+  if (m) return { kind: "cmd", command: m[1] };
+  m = /^(\S+?):\s*"(.+)"$/.exec(v);
+  if (m) return { kind: "test", file: m[1], name: m[2] };
+  if (/^\S+$/.test(v)) return { kind: "path", file: v };
+  return { kind: "bad", message: `enforced-by "${v}" is not a path, path: "test name", or cmd: command` };
+}
+
+// Where checks run, and where enforced-by paths are read from: config.json's
+// `check.cwd` (from the project root), else the project root.
+export function checkDir(project: Project): string {
+  const cwd = project.config.check?.cwd;
+  return cwd ? (isAbsolute(cwd) ? cwd : resolve(project.root, cwd)) : project.root;
 }

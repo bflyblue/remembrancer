@@ -132,10 +132,11 @@ Rules are the curated core. Keep them few, precise and current.
 | form | yes | `invariant`, `property`, `heuristic`. The strongest form that is true (see below) |
 | status | yes | `proposed`, `active`, `challenged`, `retired` |
 | added | yes | date |
-| reviewed | no | the date the rule was last checked against real work |
+| reviewed | no | the date a reader last checked the rule against real work |
+| checked | no | the date `remembrancer check` last ran its machine check and it passed (set by the command) |
 | revised | no | the date the rule's text last changed |
 | source | no | the IDs or incident that led to the rule |
-| enforced-by | no | the test or check that encodes it: `path/to/test.ts: "test name"` |
+| enforced-by | no | the check that encodes it, in one of three forms: `path/to/test.ts: "test name"` (a test, run through config.json's `check.test`), `cmd: shell command` (run from the check directory), or a bare path (for a reader; nothing to run) |
 | supersedes | no | the R ID this rule replaces |
 | superseded-by | no | on a retired rule: the R ID that replaced it |
 | amends, amended-by | no | as for answers: a rule that changes another while both stand |
@@ -216,6 +217,12 @@ Optional, and every key in it is optional:
 
 - `owner`: whose `waiting-on` entries the brief lists first, under "Waiting on you", whom `remembrancer waiting` shows by default, and whom a curator's `flag` waits on.
 - `stale`: days without change after which `remembrancer stale` counts an entry of that kind (if nothing live cites it). The values above are the defaults; give only the kinds you change.
+- `check`: how `remembrancer check` runs a rule's test. `test` is a shell command with `{file}` and `{name}` filled in from `enforced-by: file: "name"`; `cwd` (optional) is where checks run and enforced-by paths are read, from the project root; `fail-if-output` (optional) is a regular expression that fails a check whose output matches it even though it exited 0, such as a test pattern that matched no test. For a Haskell project with tasty:
+
+  ```json
+  "check": { "test": "nix develop path:. -c sh -c '$(cabal list-bin my-test) -p \"/{name}/\"'", "fail-if-output": "All 0 tests" }
+  ```
+
 - `knowledge-base`: `true` archives into `kb/<file>.md` instead of `archive/<file>-<year>.md`, and reads `kb/` as part of the project. Off, a `kb/` folder is ignored.
 
 `remembrancer lint` reports a file that is not valid JSON, or a key with the wrong shape.

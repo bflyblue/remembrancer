@@ -95,6 +95,8 @@ remembrancer plan T030       # a plan's tree through after:, with each task's st
 remembrancer search "re-seed crossing" [--kind A] [--tag t] [--all] [--neighbours] [--list]
                              # ranked whole entries (stemmed, titles weighted); a superseded
                              # hit brings its current entry; FTS5 syntax passes through
+remembrancer check [R003]     # run the rules' machine checks (enforced-by: file: "test", or cmd: …);
+                             # a pass sets checked:; exit 1 on a failure
 remembrancer anchors [--unused]  # code anchors (a comment "anchor: a-name"), where, and which entries
                              # cite them (anchor:a-name); lint reports cited paths and anchors gone
 remembrancer apply plan.json --dry-run  # check a proposals file (schema/proposals.json) and say what it

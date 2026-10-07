@@ -8,6 +8,7 @@ import { formatPlan, planTree, stale, waiting } from "./signals";
 import { LOG, ProposalsRefusedError, apply } from "./proposals";
 import { formatHits, search } from "./search";
 import { anchorCitations, anchorDefinitions, repoOf } from "./anchors";
+import { type CheckResult, recordChecks, runChecks } from "./check";
 import { guard } from "./guard";
 import { LintRefusedError, type RuleAction, amend, answerQuestion, appendLine, archiveEntry, ruleAction, supersede, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
@@ -88,6 +89,11 @@ usage:
                                      each anchor defined in the code (a comment holding
                                      "anchor: a-name"), where, and the entries citing it
                                      (anchor:a-name). --unused: only those no entry cites
+  remembrancer check [R###...] [--json]
+                                     run the rules' machine checks (enforced-by: path: "test name"
+                                     through config.json's check.test, or cmd: command); pass, FAIL
+                                     with the last 20 lines, or skipped; a pass sets checked:.
+                                     Exit 1 on any failure
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -439,6 +445,23 @@ async function main(argv: string[]) {
       if (json) console.log(JSON.stringify({ anchors: rows }, null, 2));
       else if (!rows.length) console.log(flag("--unused") ? "every anchor is cited" : "no anchors: put `anchor: a-name` in a code comment, and cite it as anchor:a-name");
       else for (const r of rows) console.log(`${r.name}  ${r.defined.join(", ")}${r.defined.length > 1 ? "  (defined twice: rename one)" : ""}  ← ${r.citedBy.join(", ") || "no entry"}`);
+      return;
+    }
+    case "check": {
+      const ids = args.filter((a) => !a.startsWith("--")).map((a) => a.toUpperCase());
+      const root = requireRoot();
+      const project = await loadProject(root);
+      const print = (r: CheckResult) => {
+        if (json) return;
+        const head = `${r.id} ${r.status === "fail" ? "FAIL" : r.status}${r.seconds !== undefined ? ` (${r.seconds}s)` : ""}  ${r.title}`;
+        console.log(r.status === "pass" ? head : `${head}\n  ${r.message}${r.tail ? "\n" + r.tail.map((l) => `  | ${l}`).join("\n") : ""}`);
+      };
+      const results = await runChecks(project, ids, print);
+      await recordChecks(root, results);
+      const n = (s: string) => results.filter((r) => r.status === s).length;
+      if (json) console.log(JSON.stringify({ ok: n("fail") === 0, results }, null, 2));
+      else console.log(results.length ? `${n("pass")} pass, ${n("fail")} fail, ${n("skipped")} skipped` : "no rule has a check to run (enforced-by)");
+      if (n("fail")) process.exit(1);
       return;
     }
     case "brief": {

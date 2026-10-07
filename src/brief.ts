@@ -1,6 +1,7 @@
 import { attention, inFile, openTodos } from "./analyse";
 import { type Entry, daysSince } from "./model";
 import type { Project } from "./project";
+import { checkCounts, readChecksLog } from "./check";
 import { currentPhase, staleDays, finishedPlans, stale, tagsOf, waiting } from "./signals";
 
 const MAX_TODOS = 6;
@@ -47,7 +48,7 @@ export interface BriefData {
   finishedPlans: BriefEntry[]; // open plans with every child done: ready to close
   rules: { id: string; title: string; status: string; form: string | null; tested: boolean; checked: string | null; reviewed: string | null }[];
   stale: { count: number; byKind: Record<string, number>; days: Record<string, number> };
-  checks: null; // { pass, fail, unrunnable } once rule checks run (a later slice)
+  checks: { pass: number; fail: number; unrunnable: number; notRun: number }; // the active rules' machine checks, by their last run
   todos: (BriefEntry & { blockedBy: string[] })[]; // open and triaged, in order
   questions: (BriefEntry & { age: number | null })[];
   resources: BriefEntry[];
@@ -102,7 +103,7 @@ export function briefData(project: Project, now = new Date(), visibility: "priva
         reviewed: r.meta.reviewed ?? null,
       })),
     stale: { count: staleList.length, byKind, days: staleDays(project) },
-    checks: null,
+    checks: checkCounts(project, readChecksLog(project.root)),
     todos: todos.filter((t) => t.meta.status !== "inbox").map((t) => ({ ...summary(t), blockedBy: t.blockedBy })),
     questions: inFile(project, "questions.md").map((q) => ({ ...summary(q), age: daysSince(q.meta.asked, now) })),
     resources: resources.map(summary),
@@ -174,7 +175,11 @@ export function renderBrief(d: BriefData): string {
   }
 
   if (inForce.length) {
-    lines.push("", "Rules (check work against these):");
+    const c = d.checks;
+    const runs = c.pass + c.fail + c.unrunnable + c.notRun
+      ? `; checks: ${[c.fail ? `${c.fail} FAIL` : "", `${c.pass} pass`, c.notRun ? `${c.notRun} not run` : "", c.unrunnable ? `${c.unrunnable} unrunnable` : ""].filter(Boolean).join(", ")} (remembrancer check)`
+      : "";
+    lines.push("", `Rules (check work against these${runs}):`);
     for (const r of inForce.slice(0, MAX_RULES)) {
       const tags = [r.form, r.tested ? "tested" : "", r.status === "challenged" ? "CHALLENGED" : ""].filter(Boolean).join(", ");
       lines.push(`  ${r.id} ${r.title}${tags ? `  [${tags}]` : ""}`);

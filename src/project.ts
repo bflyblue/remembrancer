@@ -26,6 +26,11 @@ export interface Config {
   owner?: string;
   stale?: Partial<Record<Kind, number>>;
   "knowledge-base"?: boolean;
+  check?: {
+    test?: string; // the command that runs one test: {file} and {name} are filled in
+    cwd?: string; // where checks run and enforced-by paths are read (default: the project root)
+    "fail-if-output"?: string; // a regex: output matching it fails a check that exited 0 (a pattern that matched no test)
+  };
 }
 
 export const CONFIG = "config.json";
@@ -43,6 +48,18 @@ export function readConfig(root: string): { config: Config; error: string | null
       if (!ok) return { config: {}, error: `stale must map T, Q, A, R or K to a whole number of days, like {"T": 30}` };
     }
     if (data["knowledge-base"] !== undefined && typeof data["knowledge-base"] !== "boolean") return { config: {}, error: "knowledge-base must be true or false" };
+    if (data.check !== undefined) {
+      const c = data.check;
+      const ok = typeof c === "object" && c !== null && !Array.isArray(c) && Object.entries(c).every(([k, v]) => ["test", "cwd", "fail-if-output"].includes(k) && typeof v === "string");
+      if (!ok) return { config: {}, error: `check must be {"test": "…", "cwd": "…", "fail-if-output": "…"}, each a string` };
+      if (c["fail-if-output"] !== undefined) {
+        try {
+          new RegExp(c["fail-if-output"]);
+        } catch {
+          return { config: {}, error: "check.fail-if-output is not a valid regular expression" };
+        }
+      }
+    }
     return { config: data as Config, error: null };
   } catch (err) {
     return { config: {}, error: `is not valid JSON (${(err as Error).message})` };
