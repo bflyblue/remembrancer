@@ -42,26 +42,51 @@ export function ftsQuery(q: string): string {
 const searchable = (e: Entry, all: boolean) =>
   !!e.id && e.file !== "scratch.md" && (all || !/^(archive|kb)\//.test(e.file));
 
-export function search(project: Project, query: string, o: SearchOptions = {}): Hit[] {
-  if (!query.trim()) throw new RefusedError("search for something");
-  const db = new Database(":memory:");
-  try {
-    db.run("CREATE VIRTUAL TABLE e USING fts5(id UNINDEXED, kind UNINDEXED, title, tags, body, tokenize='porter unicode61')");
-    const insert = db.prepare("INSERT INTO e VALUES (?, ?, ?, ?, ?)");
-    const pool = new Map<string, Entry>();
-    db.transaction(() => {
-      for (const e of project.entries) {
-        if (!searchable(e, !!o.all) || pool.has(e.id!)) continue;
-        pool.set(e.id!, e);
-        insert.run(e.id!, e.kind!, e.title, tagsOf(e).join(" "), e.body + "\n" + Object.values(e.meta).join(" "));
+// An in-memory FTS5 index over some entries, for many queries (curation
+// asks one per entry). close() it when done.
+export class Index {
+  private db = new Database(":memory:");
+  readonly pool = new Map<string, Entry>();
+
+  constructor(entries: Iterable<Entry>) {
+    this.db.run("CREATE VIRTUAL TABLE e USING fts5(id UNINDEXED, kind UNINDEXED, title, tags, body, tokenize='porter unicode61')");
+    const insert = this.db.prepare("INSERT INTO e VALUES (?, ?, ?, ?, ?)");
+    this.db.transaction(() => {
+      for (const e of entries) {
+        if (!e.id || this.pool.has(e.id)) continue;
+        this.pool.set(e.id, e);
+        insert.run(e.id, e.kind!, e.title, tagsOf(e).join(" "), e.body + "\n" + Object.values(e.meta).join(" "));
       }
     })();
-    let rows: { id: string; s: number }[];
+  }
+
+  // Matches for a query as the user wrote it (see ftsQuery), best first; score is BM25, higher better.
+  rank(query: string): { id: string; score: number }[] {
     try {
-      rows = db.query(`SELECT id, bm25(e, ${WEIGHTS}) AS s FROM e WHERE e MATCH ? ORDER BY s`).all(ftsQuery(query)) as { id: string; s: number }[];
+      const rows = this.db.query(`SELECT id, bm25(e, ${WEIGHTS}) AS s FROM e WHERE e MATCH ? ORDER BY s`).all(ftsQuery(query)) as { id: string; s: number }[];
+      return rows.map((r) => ({ id: r.id, score: -r.s }));
     } catch (err) {
       throw new RefusedError(`bad search syntax: ${(err as Error).message} (quote words with symbols in them)`);
     }
+  }
+
+  // Matches for any word of a text (a title, a condition), never read as syntax.
+  rankWords(text: string): { id: string; score: number }[] {
+    const words = text.match(/[\p{L}\p{N}]+/gu) ?? [];
+    return words.length ? this.rank(words.map((w) => `"${w}"`).join(" OR ")) : [];
+  }
+
+  close() {
+    this.db.close();
+  }
+}
+
+export function search(project: Project, query: string, o: SearchOptions = {}): Hit[] {
+  if (!query.trim()) throw new RefusedError("search for something");
+  const index = new Index(project.entries.filter((e) => searchable(e, !!o.all)));
+  const pool = index.pool;
+  try {
+    const rows = index.rank(query).map((r) => ({ id: r.id, s: -r.score }));
 
     const keep = (e: Entry) =>
       (!o.kind || e.kind === o.kind) &&
@@ -90,7 +115,7 @@ export function search(project: Project, query: string, o: SearchOptions = {}): 
     }
     return hits;
   } finally {
-    db.close();
+    index.close();
   }
 }
 

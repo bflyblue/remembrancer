@@ -82,6 +82,18 @@
       },
       "required": ["action", "id", "note", "why"],
       "additionalProperties": false
+    },
+    {
+      "title": "cluster: group entries that share one theme; each member gets the tag c-<label as words joined by dashes>",
+      "type": "object",
+      "properties": {
+        "action": { "const": "cluster" }, "case": { "type": "string", "description": "the packet case it answers" },
+        "label": { "$ref": "#/$defs/line", "description": "a few words naming what the members share" },
+        "members": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/id" } },
+        "why": { "$ref": "#/$defs/line" }
+      },
+      "required": ["action", "label", "members", "why"],
+      "additionalProperties": false
     }
   ]
 }

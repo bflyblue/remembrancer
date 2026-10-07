@@ -23,18 +23,18 @@ import {
 import { mentions, parseFile } from "./model";
 import { ConflictError, DIR, NotFoundError, type Project, RefusedError, buildProject, kbOn, loadProject } from "./project";
 
-export const ACTIONS = ["keep", "archive", "drop", "set", "retag", "link", "flag"] as const;
+export const ACTIONS = ["keep", "archive", "drop", "set", "retag", "link", "flag", "cluster"] as const;
 export type ActionName = (typeof ACTIONS)[number];
 
 // Actions named by the plan but not defined yet, and where they arrive.
-const LATER: Record<string, string> = { cluster: "gather curation", condense: "insight curation" };
+const LATER: Record<string, string> = { condense: "insight curation" };
 
 // Who may do what. `manual` (an agent or a person) and `insight` (a strong
 // model's weekly run) take every action; `gather` (a cheap model's daily run)
 // only classifies: its `archive` becomes `suggest: archive`, never a move.
 export const MODES = {
   manual: [...ACTIONS],
-  gather: ["retag", "link", "flag", "archive"],
+  gather: ["retag", "link", "flag", "archive", "cluster"],
   insight: [...ACTIONS],
 } as const satisfies Record<string, readonly ActionName[]>;
 export type Mode = keyof typeof MODES;
@@ -56,6 +56,9 @@ export interface Action {
   add?: string[];
   remove?: string[];
   note?: string;
+  case?: string; // cluster: the packet case it answers
+  label?: string; // cluster: a few words naming what the members share
+  members?: string[]; // cluster: the entries grouped
 }
 
 export interface Proposals {
@@ -75,6 +78,7 @@ const FIELDS: Record<ActionName, [required: string[], optional: string[]]> = {
   retag: [["id"], ["add", "remove"]],
   link: [["from", "rel", "to"], []],
   flag: [["id", "note"], []],
+  cluster: [["label", "members"], ["case"]],
 };
 
 const ID = /^[TQARK]\d{3,}$/;
@@ -82,7 +86,13 @@ const TAG = /^[a-z0-9-]+$/;
 const oneLine = (v: unknown) => typeof v === "string" && v.trim() !== "" && !v.includes("\n");
 const strings = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === "string");
 
-export const label = (a: Partial<Action>, i: number) => `action ${i + 1} (${a.action ?? "?"} ${a.id ?? a.from ?? "?"})`;
+export const label = (a: Partial<Action>, i: number) => `action ${i + 1} (${a.action ?? "?"} ${a.id ?? a.from ?? (Array.isArray(a.members) ? a.members.join(",") : "?")})`;
+
+// A cluster's tag: "crossing re-seeds" → c-crossing-re-seeds.
+export function clusterTag(label: string): string {
+  const slug = label.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
+  return slug ? `c-${slug}` : "";
+}
 
 // The file's shape, and each action's against its mode. Returns the problems.
 export function validate(data: unknown): string[] {
@@ -118,6 +128,12 @@ export function validate(data: unknown): string[] {
     for (const k of ["add", "remove"]) if (strings(a[k]) && !(a[k] as string[]).every((t) => TAG.test(t))) at(`${k}: tags are words of a-z, 0-9 and -`);
     if (name === "set" && a.fields === undefined && a.unset === undefined) at(`needs "fields" or "unset"`);
     if (name === "retag" && a.add === undefined && a.remove === undefined) at(`needs "add" or "remove"`);
+    if (name === "cluster") {
+      if (!oneLine(a.label) || !clusterTag(String(a.label))) at(`label must be a few words, one line`);
+      if (!strings(a.members) || (a.members as string[]).length < 2) at(`members must list two or more IDs`);
+      else for (const m of a.members as string[]) if (!ID.test(m)) at(`member "${m}" is not an ID`);
+      if (a.case !== undefined && typeof a.case !== "string") at(`case must be the packet case's name`);
+    }
   });
   return out;
 }
@@ -146,7 +162,7 @@ function plan(before: Project, p: Proposals): { changes: Changes; applied: Appli
   const applied: Applied[] = [];
 
   p.actions.forEach((a, i) => {
-    const id = (a.id ?? a.from)!.toUpperCase();
+    const id = (a.id ?? a.from ?? a.members![0]).toUpperCase();
     try {
       for (const ref of [id, ...(a.to ? [a.to.toUpperCase()] : [])]) {
         if (gone.has(ref)) throw new RefusedError(`${ref} was already moved by action ${gone.get(ref)! + 1}`);
@@ -209,6 +225,23 @@ function plan(before: Project, p: Proposals): { changes: Changes; applied: Appli
           result = `${a.rel} ${to.id}`;
           break;
         }
+        case "cluster": {
+          // Each member gets the cluster's tag; the group itself is the log line.
+          const tag = clusterTag(a.label!);
+          const members = [...new Set(a.members!.map((m) => m.toUpperCase()))];
+          for (const m of members) {
+            if (gone.has(m)) throw new RefusedError(`${m} was already moved by action ${gone.get(m)! + 1}`);
+            locate(before, m);
+          }
+          for (const m of members) {
+            changes.change(m, (x) => {
+              const tags = (x.meta.tags ?? "").split(/[,\s]+/).filter(Boolean);
+              return stamp(x, { tags: [...new Set([...tags, tag])].join(", ") });
+            });
+          }
+          result = `${tag} on ${members.join(", ")}`;
+          break;
+        }
         case "flag":
           if (!owner) throw new RefusedError(`flag sets waiting-on to the owner: name one in ${DIR}/config.json ({"owner": "…"})`);
           changes.change(id, (x) => rewrite(x, { updates: { "waiting-on": owner }, body: appendToSection(x.body, "History", `flagged: ${a.note}`) }));
@@ -229,11 +262,16 @@ function plan(before: Project, p: Proposals): { changes: Changes; applied: Appli
 export async function readProposals(path: string): Promise<Proposals> {
   const f = Bun.file(path);
   if (!(await f.exists())) throw new RefusedError(`no file ${path}`);
+  return parseProposals(await f.text(), path);
+}
+
+// Proposals from JSON text, checked against the format.
+export function parseProposals(text: string, source: string): Proposals {
   let data: unknown;
   try {
-    data = JSON.parse(await f.text());
+    data = JSON.parse(text);
   } catch (err) {
-    throw new ProposalsRefusedError([`${path} is not valid JSON (${(err as Error).message})`]);
+    throw new ProposalsRefusedError([`${source} is not valid JSON (${(err as Error).message})`]);
   }
   const problems = validate(data);
   if (problems.length) throw new ProposalsRefusedError(problems);
@@ -246,7 +284,10 @@ const LOG_HEADER = "# Curation log\n\nOne line per applied action, oldest first.
 // Apply a proposals file, or with `dryRun` say what it would do (and which lint
 // problems it would add) without writing anything.
 export async function apply(root: string, path: string, { dryRun = false } = {}): Promise<Applied[]> {
-  const p = await readProposals(path);
+  return applyProposals(root, await readProposals(path), basename(path), { dryRun });
+}
+
+export async function applyProposals(root: string, p: Proposals, sourceName: string, { dryRun = false } = {}): Promise<Applied[]> {
   if (dryRun) {
     const before = await loadProject(root);
     const { changes, applied } = plan(before, p);
@@ -265,7 +306,7 @@ export async function apply(root: string, path: string, { dryRun = false } = {})
   await mkdir(join(root, DIR, "log"), { recursive: true });
   const start = (await Bun.file(log).exists()) ? "" : LOG_HEADER;
   const when = new Date().toISOString().slice(0, 16) + "Z";
-  const source = `${p.mode} by ${p.by}${p.packet ? `, packet ${p.packet}` : ""}, ${basename(path)}`;
+  const source = `${p.mode} by ${p.by}${p.packet ? `, packet ${p.packet}` : ""}, ${sourceName}`;
   await appendFile(log, start + applied.map((a) => `- ${when} ${a.action} ${a.id}: ${a.result} (${source}): ${p.actions[a.index].why}\n`).join(""));
   return applied;
 }

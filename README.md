@@ -99,6 +99,7 @@ remembrancer check [R003]     # run the rules' machine checks (enforced-by: file
                              # a pass sets checked:; exit 1 on a failure
 remembrancer anchors [--unused]  # code anchors (a comment "anchor: a-name"), where, and which entries
                              # cite them (anchor:a-name); lint reports cited paths and anchors gone
+remembrancer curate --mode gather --out packet.json   # a packet of small cases for a curator (below)
 remembrancer apply plan.json --dry-run  # check a proposals file (schema/proposals.json) and say what it
                              # would do; without --dry-run, apply it in one step or refuse it whole
 remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…
@@ -118,6 +119,34 @@ remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines 
 Optional `.remembrancer/config.json`: `{"owner": "shaun"}` names whose `waiting-on:` entries the brief lists first; `"stale": {"T": 30, …}` changes the staleness thresholds; `"knowledge-base": true` archives into `kb/<file>.md` (read as part of the project) instead of `archive/<file>-<year>.md`. See [format.md](skill/references/format.md#configjson).
 
 Every write command takes the lock, checks the entry (against `--if HASH` when given), stamps `touched:`, and lints the result: a write that would add a lint problem exits 2 and changes nothing. Agents should make every change this way; the PostToolUse lint hook catches hand edits and names the command that would have made them.
+
+### Curation with a local model
+
+`remembrancer curate --mode gather` writes a **packet**: small, independent cases (entries whose cited files or anchors have gone, rules not reviewed, answers whose `revisit-if` may now hold, inbox captures, groups of alike entries, stale entries). Each case carries its entries' full text, the evidence, and the actions allowed, and stays under about 6 KB of text, so a small model can take one case per prompt. Gather mode only classifies: `cluster` (a `c-<label>` tag on each member), `retag`, `link`, `flag` (waits on the owner) and `archive`, which lands as `suggest: archive`, never a move. The format is `schema/packet.json`; the answer is a proposals file (`schema/proposals.json`).
+
+With `--curator "CMD"`, the packet goes to CMD's stdin, its stdout is read as proposals, and `apply --dry-run` checks them. Nothing is applied: `--save F` keeps them for `remembrancer apply F`.
+
+Two example curators live in `curators/` (the system prompt is `curators/gather.md`):
+
+- **`curators/openai-compatible.ts`**: any OpenAI-compatible chat-completions server (vLLM, llama.cpp, ollama, LM Studio, OpenAI). One request per case, with the answer's JSON schema as structured output (`response_format: json_schema`); a wrong answer is retried once with its problems named.
+
+  | variable | meaning |
+  |---|---|
+  | `REMEMBRANCER_LLM_URL` | the base URL, up to `/v1`, e.g. `http://ceres:8000/v1` (required) |
+  | `REMEMBRANCER_LLM_MODEL` | the model's ID on that server, e.g. `qwen3.8-flash-next` (required) |
+  | `REMEMBRANCER_LLM_KEY` | an API key, sent as a Bearer token (optional) |
+  | `REMEMBRANCER_LLM_FORMAT` | `json_schema` (default), `json_object`, or `none` for servers without structured output |
+  | `REMEMBRANCER_LLM_EXTRA` | JSON merged into each request, e.g. `{"chat_template_kwargs": {"enable_thinking": false}}` for a thinking model |
+
+- **`curators/pi.sh`**: the same through Pi (`pi -p`), for a model Pi already reaches. `REMEMBRANCER_PI_MODEL` (required, e.g. `ceres-vllm-0/qwen3.8-flash-next`) and `REMEMBRANCER_PI_THINKING` (default `off`). Pi has no structured output, so the schema goes in the prompt.
+
+For example, from a project's root:
+
+```sh
+REMEMBRANCER_LLM_URL=http://ceres:8000/v1 REMEMBRANCER_LLM_MODEL=qwen3.8-flash-next REMEMBRANCER_LLM_KEY=local \
+  remembrancer curate --mode gather --curator "bun ~/devel/personal/remembrancer/curators/openai-compatible.ts" --save /tmp/gather.json
+remembrancer apply /tmp/gather.json   # after reading it
+```
 
 ### Serving from a headless machine
 

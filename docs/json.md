@@ -119,3 +119,16 @@ supersession chain, or an entry it closes. `neighbours` appears with `--neighbou
 ```
 
 Each rule's last result is also kept in `.remembrancer/log/checks.json`, which the brief's `checks` counts read.
+
+## `curate --mode gather` (the packet, `schema/packet.json`)
+
+```json
+{ "packet": "92fa615268ab773", "mode": "gather", "made": "2026-10-07", "owner": "shaun", "scope": "active",
+  "cases": [ { "case": "c11", "kind": "similar", "evidence": "both refer to T103; titles alike (T188, T225)",
+               "allowed": ["cluster", "link", "retag", "flag", "archive"],
+               "entries": [ { "id": "T185", "kind": "T", "file": "todo.md", "title": "…", "meta": {}, "body": "…", "hash": "…" } ] } ] }
+```
+
+`kind` is `drift`, `inbox`, `similar` or `stale`. An entry is in at most one case; a case has at most 12 entries and
+about 6,000 characters of body (a longer body is cut and marked `"truncated": true`). With `--curator`, `--json`
+prints `{ok, dryRun: true, applied, saved}`.

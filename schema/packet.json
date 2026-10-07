@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "packet.json",
+  "title": "A remembrancer curation packet",
+  "description": "Written by `remembrancer curate`. Each case is self-contained: work through them one at a time, proposing only the case's allowed actions for its entries, and answer with a proposals file (proposals.json) whose `packet` is this packet's hash and whose `mode` is this packet's mode.",
+  "type": "object",
+  "properties": {
+    "packet": { "type": "string", "minLength": 1, "description": "the hash of the cases" },
+    "mode": { "const": "gather" },
+    "made": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "owner": { "type": ["string", "null"], "description": "whom a flag waits on" },
+    "scope": { "enum": ["active", "archive", "all"] },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case": { "type": "string", "pattern": "^c[0-9]+$" },
+          "kind": { "enum": ["stale", "similar", "inbox", "drift"] },
+          "evidence": { "type": "string", "description": "why these entries are a case" },
+          "allowed": { "type": "array", "minItems": 1, "items": { "enum": ["cluster", "retag", "link", "flag", "archive"] } },
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "pattern": "^[TQARK][0-9]{3,}$" },
+                "kind": { "enum": ["T", "Q", "A", "R", "K"] },
+                "file": { "type": "string" },
+                "title": { "type": "string" },
+                "meta": { "type": "object", "additionalProperties": { "type": "string" } },
+                "body": { "type": "string" },
+                "hash": { "type": "string", "description": "copy into an action's if" },
+                "truncated": { "const": true }
+              },
+              "required": ["id", "kind", "file", "title", "meta", "body", "hash"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["case", "kind", "evidence", "allowed", "entries"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["packet", "mode", "made", "owner", "scope", "cases"],
+  "additionalProperties": false
+}

@@ -68,9 +68,9 @@ describe("the schema", () => {
       ],
     });
     expect(problems).toEqual([
-      'action 1 (explode T001): unknown action "explode" (one of keep, archive, drop, set, retag, link, flag)',
+      'action 1 (explode T001): unknown action "explode" (one of keep, archive, drop, set, retag, link, flag, cluster)',
       'action 2 (condense T001): "condense" is not defined yet (it arrives with insight curation)',
-      "action 3 (drop T002): a gather run may not drop (allowed: retag, link, flag, archive)",
+      "action 3 (drop T002): a gather run may not drop (allowed: retag, link, flag, archive, cluster)",
       'action 4 (retag T003): needs "add" or "remove"',
       'action 5 (flag T1): needs "why", one line',
       'action 5 (flag T1): id "T1" is not an ID',

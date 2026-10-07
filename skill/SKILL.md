@@ -126,7 +126,8 @@ Find entries with `remembrancer search "words"` (ranked whole entries; `--list` 
 - `status`: the session-start summary, plus `remembrancer lint` problems.
 - `plan`: the planning procedure above, for the next wave of work.
 - `review`: the before-commit check above, run against the staged or working diff.
-- `curate`:
+- `curate`: two ways in. For a quick pass by a cheap model, `remembrancer curate --mode gather --curator "CMD" --save F` (a packet of small cases, classified only; see the README), then show the user F and `remembrancer apply F` what they agree to. To work through it yourself:
+  0. `remembrancer curate --mode gather --out packet.json` gives you the same cases: read them one at a time, and answer in a proposals file with `"mode": "gather"` and the packet's hash in `"packet"`, or go on with the steps below in manual mode.
   1. Run `remembrancer stale` and read the brief's "To decide". For each candidate, `remembrancer show` it, and move any lasting knowledge into an answer (`decide`) or a proposed rule (`new R`) first.
   2. Write a proposals file (format: `schema/proposals.json` in the remembrancer checkout; `"mode": "manual"`, `"by": "claude"`), one action per entry: `keep`, `archive` (with `importance`), `drop` (a todo, with `reason`), `set`, `retag`, `link` (`refs`, `amends`, `supersedes`, `closes`) or `flag` (the owner must decide; sets `waiting-on`). Give each a one-line `why`, and copy the entry's hash from `show` into `if`.
   3. Run `remembrancer apply FILE --dry-run`, fix what it refuses, and show the user the list. Apply (`remembrancer apply FILE`) only what they agree to. Every applied action is logged in `.remembrancer/log/curation.md`.

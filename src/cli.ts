@@ -5,7 +5,8 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { briefData, renderBrief } from "./brief";
 import { formatPlan, planTree, stale, waiting } from "./signals";
-import { LOG, ProposalsRefusedError, apply } from "./proposals";
+import { LOG, ProposalsRefusedError, apply, applyProposals, label, parseProposals } from "./proposals";
+import { type Scope, buildPacket, packetSize, subjects } from "./curate";
 import { formatHits, search } from "./search";
 import { anchorCitations, anchorDefinitions, repoOf } from "./anchors";
 import { type CheckResult, recordChecks, runChecks } from "./check";
@@ -94,6 +95,12 @@ usage:
                                      through config.json's check.test, or cmd: command); pass, FAIL
                                      with the last 20 lines, or skipped; a pass sets checked:.
                                      Exit 1 on any failure
+  remembrancer curate --mode gather [--scope active|archive|all] [--out F] [--curator "CMD" [--save F]]
+                                     a packet of small cases (drift, inbox, alike entries, stale)
+                                     for a cheap model to classify. --out writes it (else stdout).
+                                     --curator pipes it to CMD, reads proposals from CMD's stdout,
+                                     and dry-runs them, applying nothing; --save keeps them for
+                                     remembrancer apply. Example curators: curators/ (README)
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -157,10 +164,13 @@ const HAND_EDIT_HINT: Record<string, string> = {
 const VALUED = new Set([
   "--body", "--body-file", "--outcome", "--outcome-file", "--reason", "--if", "--title", "--section", "--line", "--unset",
   "--revisit-if", "--closes", "--amends", "--supersedes", "--by", "--question", "--to",
-  "--waiting-on", "--days", "--kind", "--on", "--tag", "--phase", "--k",
+  "--waiting-on",
 ]);
 
-function parseArgs(args: string[]) {
+// `own`: options that take a value for this command only, so that elsewhere
+// `--phase=B` stays a field (`new T … --phase=B`).
+function parseArgs(args: string[], own: string[] = []) {
+  const valued = new Set([...VALUED, ...own]);
   const pos: string[] = [];
   const opts = new Map<string, string[]>();
   const fields: Record<string, string> = {};
@@ -169,7 +179,7 @@ function parseArgs(args: string[]) {
     const a = args[i];
     const eq = a.indexOf("=");
     const name = a.startsWith("--") && eq > 2 ? a.slice(0, eq) : a;
-    if (VALUED.has(name)) {
+    if (valued.has(name)) {
       const value = name === a ? args[++i] : a.slice(eq + 1);
       if (value === undefined) fail(2, `${name} needs a value`, args.includes("--json"));
       opts.set(name, [...(opts.get(name) ?? []), value]);
@@ -358,7 +368,7 @@ async function main(argv: string[]) {
       return reportWrite(root, id, json, `${id} → ${moved}`);
     }
     case "stale": {
-      const { opt } = parseArgs(args);
+      const { opt } = parseArgs(args, ["--days", "--kind"]);
       const days = opt("--days")[0];
       const kind = opt("--kind")[0]?.toUpperCase();
       if ((days !== undefined && !/^\d+$/.test(days)) || (kind && !["T", "Q", "A", "R", "K"].includes(kind))) {
@@ -371,7 +381,7 @@ async function main(argv: string[]) {
       return;
     }
     case "waiting": {
-      const { opt, has } = parseArgs(args);
+      const { opt, has } = parseArgs(args, ["--on"]);
       const project = await loadProject(requireRoot());
       const on = has("--all") ? undefined : (opt("--on")[0] ?? project.config.owner);
       const groups = waiting(project, on);
@@ -413,7 +423,7 @@ async function main(argv: string[]) {
       return;
     }
     case "search": {
-      const { pos, opt, has } = parseArgs(args);
+      const { pos, opt, has } = parseArgs(args, ["--kind", "--tag", "--phase", "--k"]);
       const query = pos.join(" ");
       const kind = opt("--kind")[0]?.toUpperCase();
       const k = opt("--k")[0];
@@ -462,6 +472,58 @@ async function main(argv: string[]) {
       if (json) console.log(JSON.stringify({ ok: n("fail") === 0, results }, null, 2));
       else console.log(results.length ? `${n("pass")} pass, ${n("fail")} fail, ${n("skipped")} skipped` : "no rule has a check to run (enforced-by)");
       if (n("fail")) process.exit(1);
+      return;
+    }
+    case "curate": {
+      const { opt, has } = parseArgs(args, ["--mode", "--scope", "--out", "--curator", "--save"]);
+      const mode = opt("--mode")[0];
+      const scope = (opt("--scope")[0] ?? "active") as Scope;
+      if (mode !== "gather" || !["active", "archive", "all"].includes(scope)) {
+        fail(2, mode === "insight" ? "insight mode arrives in a later slice" : 'usage: remembrancer curate --mode gather [--scope active|archive|all] [--out F] [--curator "CMD" [--save F]]', json);
+      }
+      const root = requireRoot();
+      const packet = buildPacket(await loadProject(root), { scope });
+      const size = packetSize(packet);
+      const summary = `packet ${packet.packet}: ${size.cases} cases (${Object.entries(size.byKind).map(([k, n]) => `${n} ${k}`).join(", ") || "none"}), about ${size.tokens} tokens; ${size.meanCaseTokens} per case on average, ${size.maxCaseTokens} at most`;
+      const out = opt("--out")[0];
+      if (out) await Bun.write(out, JSON.stringify(packet, null, 2) + "\n");
+      const curator = opt("--curator")[0];
+      if (!curator) {
+        if (out) console.log(json ? JSON.stringify({ ok: true, ...size, packet: packet.packet, out }, null, 2) : `${summary}\nwritten to ${out}`);
+        else console.log(JSON.stringify(packet, null, 2));
+        return;
+      }
+      if (!json) console.error(summary);
+      // The curator runs outside the lock: it may take minutes.
+      const proc = Bun.spawn(["sh", "-c", curator], { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "inherit" });
+      proc.stdin.write(JSON.stringify(packet));
+      proc.stdin.end();
+      const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      if (code !== 0) fail(1, `the curator exited ${code}; nothing applied`, json);
+      let raw: { actions?: unknown[] } = {};
+      try {
+        raw = JSON.parse(text);
+      } catch {}
+      if (Array.isArray(raw.actions) && raw.actions.length === 0) {
+        console.log(json ? JSON.stringify({ ok: true, applied: [], dryRun: true }, null, 2) : "the curator proposed nothing");
+        return;
+      }
+      const proposals = parseProposals(text, "the curator's output");
+      const known = new Set(packet.cases.flatMap((c) => c.entries.map((e) => e.id)));
+      const problems = [
+        ...(proposals.mode !== "gather" ? [`the curator's mode is ${proposals.mode}, not gather`] : []),
+        ...(proposals.packet !== packet.packet ? [`the proposals answer packet ${proposals.packet}, not ${packet.packet}`] : []),
+        ...proposals.actions.flatMap((a, i) => subjects(a).filter((id) => !known.has(id)).map((id) => `${label(a, i)}: ${id} is not in the packet`)),
+      ];
+      if (problems.length) throw new ProposalsRefusedError(problems);
+      const save = opt("--save")[0];
+      if (save) await Bun.write(save, JSON.stringify(proposals, null, 2) + "\n");
+      const applied = await applyProposals(root, proposals, save ? basename(save) : "curator output", { dryRun: true });
+      if (json) console.log(JSON.stringify({ ok: true, dryRun: true, applied, saved: save ?? null }, null, 2));
+      else {
+        for (const a of applied) console.log(`${a.action} ${a.id}: ${a.result}`);
+        console.log(`dry run: ${applied.length} action${applied.length === 1 ? "" : "s"} would apply; nothing written.${save ? ` To apply: remembrancer apply ${save}` : " Add --save F to keep them, then remembrancer apply F."}`);
+      }
       return;
     }
     case "brief": {
