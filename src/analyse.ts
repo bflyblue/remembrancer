@@ -96,14 +96,44 @@ const EXPECTED_KIND: Record<string, string> = {
   "resources.md": "K",
 };
 
-const ENUMS: Record<string, string[]> = {
-  priority: ["P1", "P2", "P3"],
-  scope: ["code", "design", "agent", "process"],
-  form: ["invariant", "property", "heuristic"],
-  status: ["proposed", "active", "challenged", "retired"],
+// Allowed values per file ("*": every file). A key a file doesn't list is free text there.
+const PRIORITY = ["P1", "P2", "P3"];
+const ENUMS: Record<string, Record<string, string[]>> = {
+  "*": { priority: PRIORITY },
+  "todo.md": { status: ["inbox"] },
+  "rules.md": {
+    scope: ["code", "design", "agent", "process"],
+    form: ["invariant", "property", "heuristic"],
+    status: ["proposed", "active", "challenged", "retired"],
+  },
 };
 
 const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised", "touched"];
+
+// The file whose rules an entry follows: an archive file keeps its stem's.
+export function baseFile(file: string): string {
+  return file.startsWith("archive/") ? file.replace(/^archive\/(\w+)-\d{4}\.md$/, "$1.md") : file;
+}
+
+// Keys an entry in `file` must have. An inbox todo (`status: inbox`) is a
+// quick capture, so it may lack a priority until it is triaged.
+export function requiredKeys(file: string, meta: Record<string, string>): string[] {
+  const keys = REQUIRED[baseFile(file)] ?? [];
+  return baseFile(file) === "todo.md" && meta.status === "inbox" ? keys.filter((k) => k !== "priority") : keys;
+}
+
+// The problems with an entry's values alone (enums and dates). Commands check
+// them before writing, so a bad value is refused rather than linted later.
+export function valueProblems(file: string, meta: Record<string, string>): string[] {
+  const out: string[] = [];
+  for (const [key, allowed] of Object.entries({ ...ENUMS["*"], ...(ENUMS[baseFile(file)] ?? {}) })) {
+    if (meta[key] && !allowed.includes(meta[key])) out.push(`${key}: "${meta[key]}" is not one of ${allowed.join("|")}`);
+  }
+  for (const key of DATE_KEYS) {
+    if (meta[key] && daysSince(meta[key]) === null) out.push(`${key}: "${meta[key]}" is not YYYY-MM-DD`);
+  }
+  return out;
+}
 
 // Keys whose values must be IDs of one kind; `same` means the entry's own kind.
 const LINK_KINDS: Record<string, string> = { closes: "Q", amends: "A", supersedes: "same", "superseded-by": "same" };
@@ -137,7 +167,7 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
   const exists = (id: string) => project.byId.has(id) || closers.has(id);
 
   for (const e of project.entries) {
-    const base = e.file.startsWith("archive/") ? e.file.replace(/^archive\/(\w+)-\d{4}\.md$/, "$1.md") : e.file;
+    const base = baseFile(e.file);
     if (!e.id) {
       report(e, `heading "${e.title}" is not "## <ID> · <title>"`);
       continue;
@@ -162,15 +192,10 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
       if (old && e.kind === "R" && old.meta.status !== "retired") report(e, `supersedes ${target}, but ${target} is not retired`);
     }
     if (ids) continue;
-    for (const key of REQUIRED[base] ?? []) {
+    for (const key of requiredKeys(e.file, e.meta)) {
       if (!e.meta[key]) report(e, `missing "${key}:"`);
     }
-    for (const [key, allowed] of Object.entries(ENUMS)) {
-      if (e.meta[key] && !allowed.includes(e.meta[key])) report(e, `${key}: "${e.meta[key]}" is not one of ${allowed.join("|")}`);
-    }
-    for (const key of DATE_KEYS) {
-      if (e.meta[key] && daysSince(e.meta[key]) === null) report(e, `${key}: "${e.meta[key]}" is not YYYY-MM-DD`);
-    }
+    for (const message of valueProblems(e.file, e.meta)) report(e, message);
     if (e.kind === "A" && !/\*\*Question\*\*/.test(e.body)) report(e, `answer has no **Question** section`);
   }
 

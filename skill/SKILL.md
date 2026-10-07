@@ -35,11 +35,29 @@ The files, with the exact format in [references/format.md](references/format.md)
 
 Entry shape: `## T012 · title`, then one metadata line `key: value · key: value`, a blank line, then a short markdown body. IDs have at least 3 digits, are never reused, and every ID mentioned anywhere links to its entry.
 
+## Make every change through the CLI
+
+Make every change to `.remembrancer/` with a `remembrancer` command. Do not edit the files directly: a hand edit takes no lock, checks nothing against what you read, and has already deleted another session's entry. Edit by hand only when no command does the job (for now: answering a question, superseding or amending an answer, changing a rule's status, and `scratch.md`). Then keep the edit to the entries you mean to change, and run `remembrancer lint` after it.
+
+Every command takes the lock, checks the entry, stamps `touched:`, and lints the result. A write that would add a lint problem, or whose `--if HASH` is stale, exits 2 and changes nothing. Read the message, fix the cause, and run it again.
+
+| To | Run |
+|---|---|
+| add a task, question, rule or resource | `remembrancer new T "title" --priority=P2 [--after=T010] [--body "…"]` (or `new Q … --context=T010`, `new R … --scope=code --form=property`, `new K … --link=… --consult-when=…`) |
+| capture a task without triaging it | `remembrancer new T "title" --inbox` |
+| finish a task | `remembrancer done T012 --outcome "…"` (or `--outcome -` for stdin, `--outcome-file F`) |
+| drop a task | `remembrancer drop T012 --reason "…"` |
+| change fields | `remembrancer set T012 priority=P1 after=T010 [--unset area]` |
+| add a dated line to a section | `remembrancer append R003 --section History --line "revised: …"` |
+| change a title or body | `remembrancer show T012` for its hash, then `remembrancer edit T012 --if HASH [--title "…"] [--body -]` |
+
+A body comes from `--body "text"`, `--body -` (stdin: use it for anything long or holding quotes) or `--body-file F`, exactly one. A field value may not contain ` · ` or a newline. Each command prints the entry's new hash; pass it as `--if` to a later write when nothing may have changed in between.
+
 ## Getting IDs
 
-Run `remembrancer next T --claim "title"` (or `Q`, `R`, `K`, or `A` for a decision no question asked for). It prints the ID and appends a stub entry under a lock, so no other agent gets the same number. Then fill in the stub. Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
+`remembrancer new` claims the ID and writes the whole entry in one step, so no other agent gets the same number. For an answer no question asked for (a decision), run `remembrancer next A --claim "title"`, which appends a stub, then fill it in. Plain `remembrancer next T` only prints the number. If the CLI is missing, take the highest number of that letter among the entry headings in `.remembrancer/` (archive included; Q and A share a sequence) and add one. Never renumber existing entries.
 
-**Never delete an entry that has an ID**: its number would be handed out again. Drop a task to `done.md` with `dropped: yes`, close a question with an answer (even one that just says it was dropped), retire a rule, and turn an unwanted resource into a stub that says why it was dropped. Run `remembrancer lint` after editing; it reports duplicate IDs and numbers that no entry uses.
+**Never delete an entry that has an ID**: its number would be handed out again. Drop a task (`remembrancer drop`), close a question with an answer (even one that just says it was dropped), retire a rule, and turn an unwanted resource into a stub that says why it was dropped. Run `remembrancer lint` after editing; it reports duplicate IDs and numbers that no entry uses.
 
 **IDs outside `.remembrancer/`.** The brief's second line says whether git ignores the folder. If it does (the default after `init`, used on shared repos), nobody reading the history can resolve an ID, so never write T/Q/A/R/K IDs in commit messages, PR descriptions, code, comments, docs or any other file outside `.remembrancer/`. Say what the ID stands for in words ("keep cursors stable under ties", not "R003"). Report rule IDs to the user in chat as usual. If the folder is committed, cite IDs in commits and PRs where they help. Without the brief, run `git check-ignore -q .remembrancer` (exit 0 means ignored). The commit guard hook (`remembrancer guard`) refuses a commit, tag or PR command that breaks this and names the IDs: rewrite them in words and retry, never work around it.
 
@@ -52,16 +70,17 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 **Session start.** Run `remembrancer brief` (or read todo, questions, rules and the `consult-when` lines of resources). Tell the user in two or three lines what is next and anything that needs attention. If `scratch.md` holds an old session, move anything durable into todo, questions, answers or rules, then reset scratch to its header and a `# Session YYYY-MM-DD` heading.
 
 **While working.** Update the files as things happen, not in a batch at the end:
-- New work found that is not part of the current task → add a T entry with a priority. Add `after:` when order matters.
-- Something needs investigation but should not block you → add a Q entry with `context: T###` (or the A### that raised it), say so in one line, and continue.
-- A task is finished → move its entry to the top of `done.md`, add `done:` and write the outcome. Record the findings that later tasks need (decisions, gotchas, where things live), and leave out narration. A task that is no longer wanted moves the same way with `dropped: yes` and the reason.
-- A question is resolved → write the A entry with the same number. Copy the question into **Question**, then write **Answer**, **Why**, **Alternatives considered**, and a `revisit-if:` condition that would make the answer worth revisiting. Delete the Q entry.
+- New work found that is not part of the current task → `remembrancer new T "title" --priority=P2`, with `--after=T###` when order matters. An idea you can't weigh yet → `--inbox` instead of a priority; triage it later with `remembrancer set T### priority=P2 --unset status`.
+- Something needs investigation but should not block you → `remembrancer new Q "title" --context=T###` (or the A### that raised it), say so in one line, and continue.
+- A task is finished → `remembrancer done T### --outcome "…"`. The outcome replaces the body: record the findings that later tasks need (decisions, gotchas, where things live), and leave out narration. A task that is no longer wanted → `remembrancer drop T### --reason "…"`.
+- Progress worth keeping on an open entry → `remembrancer append ID --section History --line "…"`; a changed field → `remembrancer set`.
+- A question is resolved → write the A entry with the same number (a hand edit until the `answer` command lands). Copy the question into **Question**, then write **Answer**, **Why**, **Alternatives considered**, and a `revisit-if:` condition that would make the answer worth revisiting. Delete the Q entry.
   - The same decision settles other open questions too → list them in `closes:` on that answer and delete them as well.
   - An answer settles only part of a question → split the question into narrower ones first. The answer that settles the last part closes it and lists the partial answers in `refs:`. Note progress on a question that stays open as a dated **History:** line citing the answer.
   - A new answer changes an earlier one → `amends: A###` if both still stand; `supersedes: A###` (and `superseded-by:` on the old one) if the old one no longer does.
 - Before you answer a new question, search `answers.md` and the archive. If it was already settled, follow that answer or say why its `revisit-if` now applies.
 - Keep short plans and working notes in `scratch.md`.
-- A source proves key to the domain, or is what finally cracked a hard question → add a K entry: `link:` (URL, or a path relative to the project root), `consult-when:` (the areas or kinds of question it helps with, specific enough to match against a task), and a body with a line on what it is and **Takeaways:** (the facts that mattered). Only add sources you'd want to return to, not every page you opened. Link it from the tasks, answers and rules it informed (`refs: K004`).
+- A source proves key to the domain, or is what finally cracked a hard question → `remembrancer new K "title" --link=… --consult-when=… --body -`: `link:` (URL, or a path relative to the project root), `consult-when:` (the areas or kinds of question it helps with, specific enough to match against a task), and a body with a line on what it is and **Takeaways:** (the facts that mattered). Only add sources you'd want to return to, not every page you opened. Link it from the tasks, answers and rules it informed (`refs: K004`).
 - Before non-trivial work, and before answering a hard question, check the resources whose `consult-when` matches. Read the takeaways first, and open the source only when they don't cover what you need. Add new takeaways when you do open it. Skip this for trivial changes.
 
 **Planning the next wave.** When the user asks what to do next, or a session starts with several related tasks ready:
@@ -69,9 +88,9 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 - A wave that may outlast the session (a few hours of related work) → keep it in `todo.md` so it survives the reset of scratch:
   1. Pick 2–6 related tasks that together reach one goal. Add the missing ones as T entries. Split any task that won't fit in about an hour.
   2. Order them with `after:` wherever one really depends on another.
-  3. Claim a plan task: `## T030 · Plan: <goal>`, `priority: P1`, with `after:` listing every task in the wave. Its body says the goal, the order, and what "done" means for the wave. The children need no extra field: the UI shows the plan among their backlinks.
+  3. Add a plan task: `remembrancer new T "Plan: <goal>" --priority=P1 --after=T031,T032 --body -`, with `after:` listing every task in the wave. Its body says the goal, the order, and what "done" means for the wave. The children need no extra field: the UI shows the plan among their backlinks.
   4. Tell the user the plan in a few lines and let them adjust it before you start.
-- Work the children in order and complete each one as usual. When all are done, move the plan to `done.md` with an outcome for the whole wave. If the wave stops partway, take the unfinished children out of the plan's `after:` (they stay in todo), and close the plan with what was reached.
+- Work the children in order and complete each one as usual. When all are done, `remembrancer done` the plan with an outcome for the whole wave. If the wave stops partway, take the unfinished children out of the plan's `after:` (`remembrancer set`) (they stay in todo), and close the plan with what was reached.
 - Keep one active plan at a time. A new wave starts from a fresh plan task; do not stretch the old one.
 
 **Rules: the part that matters most.** Rules are how the project stops repeating mistakes. Keep the set small and sharp.
@@ -84,7 +103,7 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 - Merge overlapping rules and retire dead ones rather than letting the list grow.
 - **Rules can be wrong.** When work shows a rule is wrong or insufficient, do not quietly ignore it and do not quietly obey it. Set `status: challenged`, open a Q that links the rule and the evidence, and tell the user. When that Q is answered, either revise the rule in place (same meaning, sharper or corrected: bump `revised:` and add a dated line under **History:**), or retire it (`status: retired`, `superseded-by: R###`) and add a new rule with `supersedes: R###`.
 
-**Before a review or commit.** Read the `active` and `challenged` rules. Run the `enforced-by` checks for the rules the change touches. Check the diff against the property and heuristic rules. Report which R IDs apply, which pass, and which are broken, and fix the broken ones or say why not. Bump `reviewed:` on the rules you actually checked.
+**Before a review or commit.** Read the `active` and `challenged` rules. Run the `enforced-by` checks for the rules the change touches. Check the diff against the property and heuristic rules. Report which R IDs apply, which pass, and which are broken, and fix the broken ones or say why not. Set `reviewed:` on the rules you actually checked (`remembrancer set R### reviewed=YYYY-MM-DD`).
 
 **When stuck** (the same fix has failed twice, or you are going in circles):
 1. Stop editing code.

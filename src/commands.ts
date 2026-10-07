@@ -5,8 +5,8 @@
 // (`show`) take no lock.
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { type Problem, lint } from "./analyse";
-import { type Entry, type Kind, type ParsedFile, ID_RE, mentions, parseFile, prependEntry, removeEntry, spliceEntry, today, withMeta } from "./model";
+import { type Problem, lint, requiredKeys, valueProblems } from "./analyse";
+import { type Entry, type Kind, type ParsedFile, ID_RE, appendEntry, formatEntry, mentions, parseFile, prependEntry, removeEntry, spliceEntry, today, withMeta } from "./model";
 import {
   ConflictError,
   DIR,
@@ -17,6 +17,7 @@ import {
   checkedEntry,
   isValidFile,
   loadProject,
+  nextId,
   readParsed,
   withLock,
   writeAtomic,
@@ -84,12 +85,24 @@ async function commit(root: string, before: Project, writes: [rel: string, text:
   throw new LintRefusedError(added);
 }
 
-// Lock, check the entry against `ref`, compute the new file texts, write them
-// and lint. `fn` returns the writes (in order) and a result for the caller.
+type Writes = { writes: [rel: string, text: string][] };
+
+// Lock, load the project, compute the new file texts from it, write them and
+// lint. `fn` returns the writes (in order) and a result for the caller.
+export async function withFiles<T>(root: string, fn: (before: Project) => Promise<Writes & { result: T }>): Promise<T> {
+  return withLock(root, async () => {
+    const before = await loadProject(root);
+    const { writes, result } = await fn(before);
+    await commit(root, before, writes);
+    return result;
+  });
+}
+
+// The same, for one entry checked against `ref` first.
 export async function withEntry<T>(
   root: string,
   ref: EntryRef,
-  fn: (file: ParsedFile, entry: Entry) => Promise<{ writes: [string, string][]; result: T }>,
+  fn: (file: ParsedFile, entry: Entry) => Promise<Writes & { result: T }>,
 ): Promise<T> {
   return withLock(root, async () => {
     const { file, entry } = await checkedEntry(root, ref);
@@ -98,6 +111,23 @@ export async function withEntry<T>(
     await commit(root, before, writes);
     return result;
   });
+}
+
+// An entry rewritten with a new title, metadata or body, stamped `touched:`.
+export function rewrite(e: Entry, { title, body, updates = {} }: { title?: string; body?: string; updates?: Record<string, string> }): string {
+  if (title === undefined && body === undefined) return stamp(e, updates);
+  return formatEntry({ id: e.id!, title: title ?? e.title, meta: { ...e.meta, ...updates, touched: today() }, body: body ?? e.body });
+}
+
+function checkTitle(title: string) {
+  if (!title.trim() || /\n/.test(title)) throw new RefusedError("a title is one non-empty line");
+}
+
+// Refuse values lint would reject in this file (enums, dates).
+function checkValues(file: string, updates: Record<string, string>) {
+  checkFields(updates);
+  const bad = valueProblems(file, updates);
+  if (bad.length) throw new RefusedError(bad.join("; "));
 }
 
 // Replace an entry's whole text (the UI's raw editor). A single entry is
@@ -122,19 +152,97 @@ export async function deleteEntry(root: string, ref: EntryRef) {
 
 // Set (or, with an empty value, remove) metadata fields.
 export async function setMeta(root: string, ref: EntryRef, updates: Record<string, string>) {
-  checkFields(updates);
+  checkValues(ref.file, updates);
   await withEntry(root, ref, async (file, entry) => ({ writes: [[ref.file, spliceEntry(file, entry.index, stamp(entry, updates))]], result: undefined }));
+}
+
+// Change an entry's title or body; its metadata is kept.
+export async function editEntry(root: string, ref: EntryRef, change: { title?: string; body?: string }) {
+  if (change.title !== undefined) checkTitle(change.title);
+  await withEntry(root, ref, async (file, entry) => ({ writes: [[ref.file, spliceEntry(file, entry.index, rewrite(entry, change))]], result: undefined }));
+}
+
+// Add `- YYYY-MM-DD: text` at the end of the body's `**Name:**` section, or
+// start that section at the end of the body.
+export function appendToSection(body: string, name: string, text: string, date = today()): string {
+  const item = `- ${date}: ${text}`;
+  const lines = body.split("\n");
+  const label = (l: string) => /^\*\*([^*]+?):?\*\*:?/.exec(l)?.[1].trim();
+  const at = lines.findIndex((l) => label(l)?.toLowerCase() === name.toLowerCase());
+  if (at < 0) return `${body.trimEnd()}${body.trim() ? "\n\n" : ""}**${name}:**\n${item}`;
+  let end = at + 1;
+  while (end < lines.length && label(lines[end]) === undefined && !/^#/.test(lines[end])) end++;
+  let last = end - 1;
+  while (last > at && lines[last].trim() === "") last--;
+  lines.splice(last + 1, 0, item);
+  return lines.join("\n");
+}
+
+export async function appendLine(root: string, ref: EntryRef, section: string, text: string) {
+  if (!/^[\w][\w -]*$/.test(section)) throw new RefusedError(`"${section}" is not a section name (words, like History)`);
+  if (!text.trim() || /\n/.test(text)) throw new RefusedError("the line is one non-empty line");
+  await withEntry(root, ref, async (file, entry) => ({
+    writes: [[ref.file, spliceEntry(file, entry.index, rewrite(entry, { body: appendToSection(entry.body, section, text) }))]],
+    result: undefined,
+  }));
+}
+
+// Where each kind lives, the date it is stamped with, and the keys that lead its metadata line.
+const KINDS: Record<Kind, { file: string; date: string; first: string[] }> = {
+  T: { file: "todo.md", date: "added", first: ["status", "priority"] },
+  Q: { file: "questions.md", date: "asked", first: [] },
+  A: { file: "answers.md", date: "answered", first: [] },
+  R: { file: "rules.md", date: "added", first: ["scope", "form", "status"] },
+  K: { file: "resources.md", date: "added", first: ["link", "consult-when"] },
+};
+
+// Claim the next ID and append the whole entry to its file, in one locked
+// step. With `stub`, no field is required (the caller fills them in later).
+export async function newEntry(
+  root: string,
+  kind: Kind,
+  title: string,
+  { fields = {}, body = "", inbox = false, stub = false }: { fields?: Record<string, string>; body?: string; inbox?: boolean; stub?: boolean } = {},
+): Promise<string> {
+  checkTitle(title);
+  const { file: rel, date, first } = KINDS[kind];
+  const given: Record<string, string> = { ...fields };
+  if (inbox) {
+    if (kind !== "T") throw new RefusedError("only a todo can go to the inbox");
+    given.status = "inbox";
+  }
+  if (kind === "R") given.status ??= "proposed";
+  checkValues(rel, given);
+  if (!stub) {
+    const missing = requiredKeys(rel, given).filter((k) => k !== date && !given[k]);
+    if (missing.length) throw new RefusedError(`a new ${kind} needs ${missing.map((k) => `--${k}=…`).join(" and ")}${kind === "T" ? " (or --inbox)" : ""}`);
+  }
+  const meta: Record<string, string> = {};
+  for (const k of first) if (given[k]) meta[k] = given[k];
+  meta[date] = given[date] || today();
+  Object.assign(meta, given, { [date]: meta[date] });
+  return withFiles(root, async (before) => {
+    const id = nextId(before, kind);
+    const file = before.files.find((f) => f.path === rel);
+    if (!file?.text) throw new NotFoundError(`${DIR}/${rel} does not exist (run: remembrancer init)`);
+    return { writes: [[rel, appendEntry(file.text, formatEntry({ id, title: title.trim(), meta, body }))]], result: id };
+  });
+}
+
+// `next --claim`: a stub with the date (and a rule's status), for the caller to fill in.
+export async function claimId(root: string, kind: Kind, title: string): Promise<string> {
+  return newEntry(root, kind, title, { stub: true });
 }
 
 // Move an entry to the top of another file. The target is written first, so
 // a crash in between leaves a duplicate (which lint reports), never a loss.
-async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => string, header: string, updates: Record<string, string> = {}) {
+async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => string, header: string, change: (e: Entry) => string) {
   return withEntry(root, ref, async (file, entry) => {
     const to = target(entry);
     const existing = await readParsed(root, to);
     return {
       writes: [
-        [to, prependEntry(existing.text || header, stamp(entry, updates))],
+        [to, prependEntry(existing.text || header, change(entry))],
         [ref.file, removeEntry(file, entry.index)],
       ],
       result: to,
@@ -147,14 +255,22 @@ export async function archiveEntry(root: string, ref: EntryRef) {
   if (ref.file.startsWith("archive/")) throw new NotFoundError(`${ref.id} is already archived`);
   const stem = ref.file.replace(/\.md$/, "");
   const year = (e: Entry) => (e.meta.done ?? e.meta.answered ?? today()).slice(0, 4);
-  return moveEntry(root, ref, (e) => `archive/${stem}-${year(e)}.md`, `# Archive: ${stem}\n`);
+  return moveEntry(root, ref, (e) => `archive/${stem}-${year(e)}.md`, `# Archive: ${stem}\n`, (e) => stamp(e));
 }
 
-// Move a todo to the top of done.md, stamping today's date. A dropped todo
-// goes the same way, marked `dropped: yes`, so its number stays taken.
-export async function completeEntry(root: string, ref: EntryRef, { dropped = false } = {}) {
+// Move a todo to the top of done.md, stamping today's date; `outcome`
+// replaces the body. A dropped todo goes the same way, marked `dropped: yes`
+// with `Dropped: <reason>` above its body, so its number stays taken. An inbox
+// todo leaves the inbox.
+export async function completeEntry(root: string, ref: EntryRef, { dropped = false, outcome, reason }: { dropped?: boolean; outcome?: string; reason?: string } = {}) {
   if (ref.file !== "todo.md") throw new NotFoundError(`${ref.id} is not an open todo`);
-  return moveEntry(root, ref, () => "done.md", "# Done\n", { done: today(), ...(dropped ? { dropped: "yes" } : {}) });
+  if (reason !== undefined && (!reason.trim() || /\n/.test(reason))) throw new RefusedError("a reason is one non-empty line");
+  const updates = { done: today(), ...(dropped ? { dropped: "yes" } : {}) };
+  return moveEntry(root, ref, () => "done.md", "# Done\n", (e) => {
+    const u = e.meta.status === "inbox" ? { ...updates, status: "" } : updates;
+    const body = outcome ?? (reason !== undefined ? `Dropped: ${reason.trim()}${e.body ? "\n\n" + e.body : ""}` : undefined);
+    return rewrite(e, { updates: u, body });
+  });
 }
 
 // Replace a whole file (the UI's scratch editor), checked against its file hash.

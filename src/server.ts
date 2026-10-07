@@ -60,6 +60,7 @@ async function projectData(root: string, top: string) {
         file: e.file,
         index: e.index,
         hash: hashes[e.file],
+        entry: e.hash, // the entry's own hash: writes find the entry by ID and check only it
       };
     }),
     todoOrder: openTodos(project).map((t) => ({ id: t.id, blockedBy: t.blockedBy })),

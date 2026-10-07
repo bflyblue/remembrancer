@@ -36,7 +36,7 @@ export function brief(project: Project, now = new Date(), visibility: "private" 
     lines.push("", "Next up:");
     for (const t of todos.slice(0, MAX_TODOS)) {
       const blocked = t.blockedBy.length ? `  (after ${t.blockedBy.join(", ")})` : "";
-      lines.push(`  ${t.meta.priority ?? "P?"} ${t.id} ${t.title}${blocked}`);
+      lines.push(`  ${t.meta.priority ?? (t.meta.status === "inbox" ? "inbox" : "P?")} ${t.id} ${t.title}${blocked}`);
     }
     lines.push(...more(todos.length, MAX_TODOS));
   }

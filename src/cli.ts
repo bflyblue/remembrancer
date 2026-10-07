@@ -2,13 +2,13 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { brief } from "./brief";
 import { guard } from "./guard";
-import { LintRefusedError, formatShown, show } from "./commands";
+import { LintRefusedError, appendLine, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
 import { lint } from "./analyse";
-import { ConflictError, DIR, NotFoundError, RefusedError, claimId, findRoot, loadProject, nextId, visibility } from "./project";
+import { ConflictError, DIR, NotFoundError, RefusedError, findRoot, loadProject, nextId, visibility } from "./project";
 import { qrTerminal } from "./qr";
 import { isLoopback, serve } from "./server";
 import type { Kind } from "./model";
@@ -25,6 +25,24 @@ usage:
   remembrancer brief [--hook]        session-start summary, including whether git ignores ${DIR}/
                                      (and so whether IDs may appear in commits). --hook: print
                                      nothing if there is no ${DIR}/
+  remembrancer new T|Q|R|K "title" [--key=value]... [--body TEXT|- | --body-file F] [--inbox]
+                                     claim the next ID and write the whole entry in one locked
+                                     step. T needs --priority=P1|P2|P3 unless --inbox (status:
+                                     inbox); K needs --link= and --consult-when=; R is proposed
+  remembrancer done T### [--outcome TEXT|- | --outcome-file F]
+                                     move a todo to done.md, dated; the outcome replaces its body
+  remembrancer drop T### --reason "why"
+                                     move a todo to done.md as dropped, the reason atop its body
+  remembrancer edit ID --if HASH [--title "…"] [--body TEXT|- | --body-file F]
+                                     change a title or body; HASH is what show printed
+  remembrancer set ID key=value... [--unset key]... [--if HASH]
+                                     change metadata fields
+  remembrancer append ID --section Name --line "text" [--if HASH]
+                                     add "- YYYY-MM-DD: text" under **Name:** (made if missing)
+                                     Every write: locked, checked, stamped touched:, linted; a
+                                     stale --if or a write that adds a lint problem exits 2 and
+                                     changes nothing. --json on any of them prints {ok, id, file,
+                                     hash}
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -73,6 +91,61 @@ function fail(code: number, message: string, json: boolean, problems: unknown[] 
   process.exit(code);
 }
 
+// The lint hook's last line: the commands that make by hand edits safely.
+const HAND_EDIT_HINT: Record<string, string> = {
+  "todo.md": "Make todo changes with the CLI: remembrancer new T, set, append, edit, done, drop.",
+  "done.md": "Make done changes with the CLI: remembrancer done, drop, set, append, edit.",
+  "questions.md": "Make question changes with the CLI: remembrancer new Q, set, append, edit.",
+  "rules.md": "Make rule changes with the CLI: remembrancer new R, set, append, edit.",
+  "resources.md": "Make resource changes with the CLI: remembrancer new K, set, append, edit.",
+  "": "Make entry changes with the CLI where a command does the job: remembrancer set, append, edit.",
+};
+
+// Options that take a value; `--unset` may repeat. Any other `--key=value` is
+// a field (for `new`), and any other `--flag` a switch.
+const VALUED = new Set(["--body", "--body-file", "--outcome", "--outcome-file", "--reason", "--if", "--title", "--section", "--line", "--unset"]);
+
+function parseArgs(args: string[]) {
+  const pos: string[] = [];
+  const opts = new Map<string, string[]>();
+  const fields: Record<string, string> = {};
+  const flags = new Set<string>();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    const eq = a.indexOf("=");
+    const name = a.startsWith("--") && eq > 2 ? a.slice(0, eq) : a;
+    if (VALUED.has(name)) {
+      const value = name === a ? args[++i] : a.slice(eq + 1);
+      if (value === undefined) fail(2, `${name} needs a value`, args.includes("--json"));
+      opts.set(name, [...(opts.get(name) ?? []), value]);
+    } else if (a.startsWith("--") && eq > 2) fields[a.slice(2, eq)] = a.slice(eq + 1);
+    else if (a.startsWith("--")) flags.add(a);
+    else pos.push(a);
+  }
+  return { pos, fields, opt: (name: string) => opts.get(name) ?? [], has: (flag: string) => flags.has(flag) };
+}
+
+// A body given one way only: `--NAME -` (stdin), `--NAME-file F`, or `--NAME "text"`.
+async function readText(opt: (name: string) => string[], name: string, json: boolean): Promise<string | undefined> {
+  const inline = opt(`--${name}`);
+  const files = opt(`--${name}-file`);
+  if (inline.length + files.length > 1) fail(2, `give the ${name} once: --${name} TEXT, --${name} - (stdin) or --${name}-file F`, json);
+  if (files.length) {
+    const f = Bun.file(files[0]);
+    if (!(await f.exists())) fail(1, `no file ${files[0]}`, json);
+    return f.text();
+  }
+  if (inline[0] === "-") return Bun.stdin.text();
+  return inline[0];
+}
+
+// After a write: the entry's new hash, for the next --if.
+async function reportWrite(root: string, id: string, json: boolean, message: string) {
+  const e = locate(await loadProject(root), id);
+  if (json) console.log(JSON.stringify({ ok: true, id, file: e.file, hash: e.hash }, null, 2));
+  else console.log(`${message} · hash: ${e.hash}`);
+}
+
 function requireRoot(): string {
   const root = findRoot();
   if (!root) {
@@ -110,6 +183,66 @@ async function main(argv: string[]) {
       const root = requireRoot();
       console.log(claim >= 0 ? await claimId(root, kind as Kind, title) : nextId(await loadProject(root), kind as Kind));
       return;
+    }
+    case "new": {
+      const { pos, opt, fields, has } = parseArgs(args);
+      const kind = (pos[0] ?? "").toUpperCase();
+      const title = pos.slice(1).join(" ").trim();
+      if (kind === "A") fail(2, "a decision with no question: remembrancer next A --claim TITLE, then fill it in (answers get their own command later)", json);
+      if (!["T", "Q", "R", "K"].includes(kind) || !title) fail(2, 'usage: remembrancer new T|Q|R|K "title" [--key=value]... [--body TEXT|- | --body-file F] [--inbox]', json);
+      const root = requireRoot();
+      const id = await newEntry(root, kind as Kind, title, { fields, body: (await readText(opt, "body", json)) ?? "", inbox: has("--inbox") });
+      await reportWrite(root, id, json, id);
+      return;
+    }
+    case "done":
+    case "drop":
+    case "edit":
+    case "set":
+    case "append": {
+      const { pos, opt } = parseArgs(args);
+      const id = (pos[0] ?? "").toUpperCase();
+      if (!id) fail(2, `usage: ${USAGE.split("\n").find((l) => l.includes(`remembrancer ${cmd} `))?.trim()}`, json);
+      const root = requireRoot();
+      const project = await loadProject(root);
+      const ref = refTo(project, locate(project, id));
+      const given = opt("--if")[0];
+      if (given !== undefined) ref.entry = given;
+      if (cmd === "done") {
+        const moved = await completeEntry(root, ref, { outcome: await readText(opt, "outcome", json) });
+        return reportWrite(root, id, json, `${id} → ${moved}`);
+      }
+      if (cmd === "drop") {
+        const reason = opt("--reason")[0];
+        if (!reason) fail(2, 'usage: remembrancer drop T### --reason "why"', json);
+        const moved = await completeEntry(root, ref, { dropped: true, reason });
+        return reportWrite(root, id, json, `${id} dropped → ${moved}`);
+      }
+      if (cmd === "edit") {
+        if (given === undefined) fail(2, "edit needs --if HASH (the hash `remembrancer show` printed), so it never overwrites a change you have not read", json);
+        const title = opt("--title")[0];
+        const body = await readText(opt, "body", json);
+        if (title === undefined && body === undefined) fail(2, 'usage: remembrancer edit ID --if HASH [--title "…"] [--body TEXT|- | --body-file F]', json);
+        await editEntry(root, ref, { title, body });
+        return reportWrite(root, id, json, `${id} edited`);
+      }
+      if (cmd === "set") {
+        const updates: Record<string, string> = {};
+        for (const p of pos.slice(1)) {
+          const eq = p.indexOf("=");
+          if (eq < 1) fail(2, `"${p}" is not key=value`, json);
+          updates[p.slice(0, eq)] = p.slice(eq + 1);
+        }
+        for (const k of opt("--unset")) updates[k] = "";
+        if (!Object.keys(updates).length) fail(2, "usage: remembrancer set ID key=value... [--unset key]... [--if HASH]", json);
+        await setMeta(root, ref, updates);
+        return reportWrite(root, id, json, `${id} set`);
+      }
+      const section = opt("--section")[0];
+      const line = opt("--line")[0];
+      if (!section || line === undefined) fail(2, 'usage: remembrancer append ID --section Name --line "text"', json);
+      await appendLine(root, ref, section, line);
+      return reportWrite(root, id, json, `${id}: added to ${section}`);
     }
     case "brief": {
       const root = findRoot();
@@ -152,7 +285,8 @@ async function main(argv: string[]) {
         if (!root) return;
         const problems = lint(await loadProject(root), { ids: flag("--ids") });
         if (problems.length) {
-          console.error(`remembrancer lint:\n${problems.map((p) => `${DIR}/${p.file}: ${p.id ?? "?"}: ${p.message}`).join("\n")}`);
+          const hint = HAND_EDIT_HINT[basename(path)] ?? HAND_EDIT_HINT[""];
+          console.error(`remembrancer lint:\n${problems.map((p) => `${DIR}/${p.file}: ${p.id ?? "?"}: ${p.message}`).join("\n")}\n${hint}`);
           process.exit(2);
         }
         return;

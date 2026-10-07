@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { type Entry, type Kind, type ParsedFile, mentions, padId, parseFile, today } from "./model";
+import { type Entry, type Kind, type ParsedFile, mentions, padId, parseFile } from "./model";
 
 export const DIR = ".remembrancer";
 export const FILES = ["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "resources.md", "scratch.md"] as const;
@@ -82,28 +82,6 @@ export function usedNumbers(project: Project, kind: Kind): Set<number> {
 // an ID are never deleted (lint reports the gap), so a number is never freed.
 export function nextId(project: Project, kind: Kind): string {
   return padId(kind, Math.max(0, ...usedNumbers(project, kind)) + 1);
-}
-
-const CLAIM: Record<Kind, [file: string, meta: string]> = {
-  T: ["todo.md", "added: "],
-  Q: ["questions.md", "asked: "],
-  A: ["answers.md", "answered: "],
-  R: ["rules.md", "status: proposed · added: "],
-  K: ["resources.md", "added: "],
-};
-
-// Allocate the next ID and append a stub entry for it, under the lock, so two
-// callers in the same checkout never get the same number. The stub leaves the
-// other required fields for the caller to fill in (full lint reports them).
-export async function claimId(root: string, kind: Kind, title: string): Promise<string> {
-  return withLock(root, async () => {
-    const id = nextId(await loadProject(root), kind);
-    const [rel, meta] = CLAIM[kind];
-    const file = await readParsed(root, rel);
-    if (!file.text) throw new NotFoundError(`${DIR}/${rel} does not exist (run: remembrancer init)`);
-    await writeAtomic(join(root, DIR, rel), `${file.text.replace(/\n*$/, "\n\n")}## ${id} · ${title}\n${meta}${today()}\n`);
-    return id;
-  });
 }
 
 // An exclusive lock for writes from the CLI and the UI. Agents editing the

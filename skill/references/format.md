@@ -29,8 +29,9 @@ Open tasks. Their order comes from `priority`, then from `after:`, then from fil
 
 | key | required | values |
 |---|---|---|
-| priority | yes | `P1` (next / urgent), `P2` (soon), `P3` (someday) |
+| priority | yes, unless `status: inbox` | `P1` (next / urgent), `P2` (soon), `P3` (someday) |
 | added | yes | date |
+| status | no | only `inbox`: captured quickly and not yet triaged (`remembrancer new T … --inbox`). Triage gives it a priority and removes the status; `done` and `drop` remove it too |
 | after | no | the T IDs that must be done first |
 | refs | no | related IDs |
 
@@ -45,7 +46,7 @@ Last page repeats the first item when total % pageSize == 0.
 
 Finished tasks, newest first. Keep the T ID and the original metadata, and add `done:`. The body records the **outcome** and any **findings** later tasks need. Leave out the story of how you got there.
 
-A task abandoned rather than finished moves here too, with `done:` (the date it left the list) and `dropped: yes`. The body says why.
+A task abandoned rather than finished moves here too, with `done:` (the date it left the list) and `dropped: yes`. The body says why, starting `Dropped: <reason>`. `remembrancer done` and `remembrancer drop` make both moves.
 
 ```markdown
 ## T010 · Add cursor pagination to search

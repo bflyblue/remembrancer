@@ -260,7 +260,8 @@ async function op(body, success) {
   }
 }
 
-const refOf = (e) => ({ file: e.file, hash: e.hash, index: e.index, id: e.id });
+// By ID and entry hash: a change elsewhere in the file doesn't make this entry's ref stale.
+const refOf = (e) => ({ file: e.file, hash: e.hash, index: e.index, id: e.id, entry: e.entry });
 
 // ---------- navigation ----------
 
@@ -516,7 +517,7 @@ function actions(e) {
 }
 
 function startEdit(e) {
-  state.editing = { key: keyOf(e), text: e.raw, entryId: e.id, file: e.file };
+  state.editing = { key: keyOf(e), text: e.raw, entryId: e.id, file: e.file, entry: e.entry };
   render();
   // On a phone, focusing would raise the keyboard over the text before it has been read.
   if (!NARROW.matches) document.querySelector(".editor textarea")?.focus();
@@ -534,7 +535,8 @@ function editor(e) {
   ta.rows = Math.min(40, Math.max(8, state.editing.text.split("\n").length + 2));
   const save = () => {
     const current = state.data.entries.find((x) => x.file === state.editing.file && x.id === state.editing.entryId) || e;
-    op({ op: "replace", ref: refOf(current), raw: state.editing.text }, `${e.id} saved`);
+    // Checked against the entry as it was when editing began, so a change made meanwhile is a conflict.
+    op({ op: "replace", ref: { ...refOf(current), entry: state.editing.entry }, raw: state.editing.text }, `${e.id} saved`);
   };
   ta.addEventListener("keydown", (ev) => {
     if (ev.key === "s" && (ev.ctrlKey || ev.metaKey)) {

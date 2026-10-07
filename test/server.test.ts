@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { init } from "../src/init";
+import { hashText } from "../src/model";
 import { DIR } from "../src/project";
 import { serve } from "../src/server";
 
@@ -127,4 +128,15 @@ describe("beyond loopback", () => {
       keyed.stop(true);
     }
   });
+});
+
+test("the UI's refs carry the entry hash, so a change elsewhere in the file doesn't block a write", async () => {
+  await Bun.write(join(root, DIR, "questions.md"), "# Questions\n\n## Q001 · q\nasked: 2026-09-01\n\n## Q002 · r\nasked: 2026-09-01\n");
+  const data = await (await fetch(`${base}/api/p/0`)).json();
+  const q = data.entries.find((e: any) => e.id === "Q002");
+  expect(q.entry).toBe(hashText(q.raw));
+  await Bun.write(join(root, DIR, "questions.md"), "# Questions\n\n## Q001 · q, edited\nasked: 2026-09-01\n\n## Q002 · r\nasked: 2026-09-01\n");
+  const ref = { file: q.file, hash: q.hash, index: q.index, id: q.id, entry: q.entry };
+  expect((await post({ op: "meta", ref, updates: { context: "T001" } })).status).toBe(200);
+  expect((await post({ op: "meta", ref, updates: { context: "T001" } })).status).toBe(409); // Q002 itself changed
 });
