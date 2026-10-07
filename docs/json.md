@@ -89,3 +89,14 @@ A plan node marked `"cycle": true` is its own ancestor and is not expanded again
 
 A refused file exits 2 with `{ok: false, error, problems: [{file: null, id: null, message: "action 2 (keep T001): stale if: …"}]}`.
 The input format is `schema/proposals.json`, each action `schema/action.json`.
+
+## `search "terms" --json` (and `GET /api/p/N/search?q=…&kind=&tag=&phase=&all=1&k=&neighbours=1`)
+
+```json
+{ "query": "re-seed crossing",
+  "hits": [ { "id": "A203", "score": 7.84, "entry": { "id": "A203", "kind": "A", "file": "answers.md", "index": 166, "title": "…", "meta": {}, "body": "…", "raw": "…", "hash": "…" } },
+            { "id": "A205", "score": 7.84, "via": "A203", "entry": { … }, "neighbours": { "out": [ … ], "in": [ … ] } } ] }
+```
+
+Hits are in BM25 order (higher `score` is better). A hit marked `via` was pulled in by that hit: the end of its
+supersession chain, or an entry it closes. `neighbours` appears with `--neighbours`.

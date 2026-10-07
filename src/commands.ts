@@ -554,7 +554,7 @@ export function currentOf(project: Project, e: Entry): string | null {
   return at === e ? null : at.id;
 }
 
-function linksOf(project: Project, e: Entry): { out: Link[]; in: Link[] } {
+export function linksOf(project: Project, e: Entry): { out: Link[]; in: Link[] } {
   const out: Link[] = [];
   const inMeta = new Set<string>();
   for (const [key, value] of Object.entries(e.meta)) {

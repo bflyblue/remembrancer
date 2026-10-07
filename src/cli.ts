@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve, sep } from "node:path";
 import { briefData, renderBrief } from "./brief";
 import { formatPlan, planTree, stale, waiting } from "./signals";
 import { LOG, ProposalsRefusedError, apply } from "./proposals";
+import { formatHits, search } from "./search";
 import { guard } from "./guard";
 import { LintRefusedError, type RuleAction, amend, answerQuestion, appendLine, archiveEntry, ruleAction, supersede, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
@@ -75,6 +76,13 @@ usage:
                                      --dry-run: check it and say what it would do, writing nothing
   remembrancer move ID --to archive  archive/<file>-<year>.md, or kb/<file>.md when config.json has
                                      "knowledge-base": true
+  remembrancer search "terms" [--kind K] [--tag t] [--phase p] [--all] [--k N] [--neighbours] [--list]
+                                     ranked whole entries (BM25 over titles, tags and bodies,
+                                     stemmed: "seeding" finds "seed"); a superseded hit brings its
+                                     current entry (via). Plain words rank entries holding any of
+                                     them; FTS5 syntax ("a phrase", AND, OR, NOT, pre*) passes
+                                     through. --all: archive/ and kb/ too. --neighbours: each hit's
+                                     links in and out. --list: titles only
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -138,7 +146,7 @@ const HAND_EDIT_HINT: Record<string, string> = {
 const VALUED = new Set([
   "--body", "--body-file", "--outcome", "--outcome-file", "--reason", "--if", "--title", "--section", "--line", "--unset",
   "--revisit-if", "--closes", "--amends", "--supersedes", "--by", "--question", "--to",
-  "--waiting-on", "--days", "--kind", "--on",
+  "--waiting-on", "--days", "--kind", "--on", "--tag", "--phase", "--k",
 ]);
 
 function parseArgs(args: string[]) {
@@ -391,6 +399,25 @@ async function main(argv: string[]) {
         for (const a of applied) console.log(`${a.action} ${a.id}: ${a.result}`);
         console.log(dryRun ? `dry run: ${applied.length} action${applied.length === 1 ? "" : "s"} would apply; nothing written` : `applied ${applied.length}; logged in ${DIR}/${LOG}`);
       }
+      return;
+    }
+    case "search": {
+      const { pos, opt, has } = parseArgs(args);
+      const query = pos.join(" ");
+      const kind = opt("--kind")[0]?.toUpperCase();
+      const k = opt("--k")[0];
+      if (!query || (kind && !["T", "Q", "A", "R", "K"].includes(kind)) || (k !== undefined && !/^\d+$/.test(k))) {
+        fail(2, 'usage: remembrancer search "terms" [--kind T|Q|A|R|K] [--tag t] [--phase p] [--all] [--k N] [--neighbours] [--list]', json);
+      }
+      const hits = search(await loadProject(requireRoot()), query, {
+        kind: kind as Kind | undefined,
+        tag: opt("--tag")[0],
+        phase: opt("--phase")[0],
+        all: has("--all"),
+        k: k === undefined ? undefined : parseInt(k, 10),
+        neighbours: has("--neighbours"),
+      });
+      console.log(json ? JSON.stringify({ query, hits }, null, 2) : formatHits(hits, { list: has("--list") }));
       return;
     }
     case "brief": {

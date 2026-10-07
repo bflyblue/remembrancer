@@ -92,6 +92,9 @@ remembrancer brief --json    # the brief as data (docs/json.md)
 remembrancer stale [--days N] [--kind T]  # old entries nothing live cites: candidates to archive
 remembrancer waiting [--on WHO | --all]   # entries with waiting-on:, by who (default: the owner)
 remembrancer plan T030       # a plan's tree through after:, with each task's state and blockers
+remembrancer search "re-seed crossing" [--kind A] [--tag t] [--all] [--neighbours] [--list]
+                             # ranked whole entries (stemmed, titles weighted); a superseded
+                             # hit brings its current entry; FTS5 syntax passes through
 remembrancer apply plan.json --dry-run  # check a proposals file (schema/proposals.json) and say what it
                              # would do; without --dry-run, apply it in one step or refuse it whole
 remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…

@@ -70,7 +70,7 @@ A body comes from `--body "text"`, `--body -` (stdin: use it for anything long o
 
 ## Reading entries
 
-Read an entry with `remembrancer show ID…`, never grep: it prints the whole entry and its hash, and `--links` adds what it links to, what links to it, and `current:`, where a chain of `superseded-by` leads. Follow `current:` before acting on an old answer or rule. `--json` gives the same as data.
+Find entries with `remembrancer search "words"` (ranked whole entries; `--list` for titles only, `--kind A`, `--tag`, `--all` for the archive, `--neighbours` for each hit's links), and read one with `remembrancer show ID…`, never grep: it prints the whole entry and its hash, and `--links` adds what it links to, what links to it, and `current:`, where a chain of `superseded-by` leads. Follow `current:` before acting on an old answer or rule. `--json` gives the same as data.
 
 ## When to act
 
@@ -85,7 +85,7 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
   - The same decision settles other open questions too → add `--closes Q###,Q###`; they are removed as well.
   - An answer settles only part of a question → `--partial`: the answer takes a fresh number and the question stays, with a History line citing it. Or split the question into narrower ones first. The answer that settles the last part closes it and lists the partial answers in `--refs=A###`.
   - A new answer changes an earlier one → `--amends A###` if both still stand, `--supersedes A###` if the old one no longer does (or `remembrancer amend` / `supersede OLD --by NEW` afterwards). Both ends are set.
-- Before you answer a new question, search `answers.md` and the archive. If it was already settled, follow that answer or say why its `revisit-if` now applies.
+- Before you answer a new question, `remembrancer search "its key words" --all` (the archive and kb too). A superseded hit brings its current answer, marked `via`. If it was already settled, follow that answer or say why its `revisit-if` now applies.
 - Keep short plans and working notes in `scratch.md`.
 - A source proves key to the domain, or is what finally cracked a hard question → `remembrancer new K "title" --link=… --consult-when=… --body -`: `link:` (URL, or a path relative to the project root), `consult-when:` (the areas or kinds of question it helps with, specific enough to match against a task), and a body with a line on what it is and **Takeaways:** (the facts that mattered). Only add sources you'd want to return to, not every page you opened. Link it from the tasks, answers and rules it informed (`refs: K004`).
 - Before non-trivial work, and before answering a hard question, check the resources whose `consult-when` matches. Read the takeaways first, and open the source only when they don't cover what you need. Add new takeaways when you do open it. Skip this for trivial changes.

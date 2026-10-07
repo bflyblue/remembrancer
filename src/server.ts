@@ -3,6 +3,8 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { THRESHOLDS, attention, lint, openTodos } from "./analyse";
 import { linksIn, renderMarkdown, servedRoot } from "./links";
+import { DEFAULT_K, search } from "./search";
+import type { Kind } from "./model";
 import { LintRefusedError, archiveEntry, completeEntry, deleteEntry, replaceEntry, replaceFile, setMeta } from "./commands";
 import { ConflictError, DIR, type EntryRef, NotFoundError, RefusedError, listFiles, loadProject } from "./project";
 import appJs from "./ui/app.js" with { type: "text" };
@@ -155,12 +157,32 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
       if (url.pathname === "/style.css") return page(styleCss, "text/css; charset=utf-8");
       if (url.pathname === "/api/projects") return json(roots.map((root, i) => ({ i, name: root.split("/").pop(), root })));
 
-      const m = /^\/api\/p\/(\d+)(\/events|\/op|\/file)?$/.exec(url.pathname);
+      const m = /^\/api\/p\/(\d+)(\/events|\/op|\/file|\/search)?$/.exec(url.pathname);
       const i = m ? parseInt(m[1], 10) : -1;
       const root = roots[i];
       if (!m || !root) return json({ error: "not found" }, 404);
 
       if (!m[2] && req.method === "GET") return json(await projectData(root, tops[i]));
+
+      if (m[2] === "/search" && req.method === "GET") {
+        // The same hits as `remembrancer search --json`.
+        const p = url.searchParams;
+        const kind = (p.get("kind") ?? "").toUpperCase();
+        try {
+          const hits = search(await loadProject(root), p.get("q") ?? "", {
+            kind: ["T", "Q", "A", "R", "K"].includes(kind) ? (kind as Kind) : undefined,
+            tag: p.get("tag") ?? undefined,
+            phase: p.get("phase") ?? undefined,
+            all: p.get("all") === "1",
+            k: p.has("k") ? Math.max(1, parseInt(p.get("k")!, 10) || DEFAULT_K) : undefined,
+            neighbours: p.get("neighbours") === "1",
+          });
+          return json({ query: p.get("q"), hits });
+        } catch (err) {
+          if (err instanceof RefusedError) return json({ error: err.message }, 400);
+          throw err;
+        }
+      }
 
       if (m[2] === "/file" && (req.method === "GET" || req.method === "HEAD")) {
         const path = url.searchParams.get("path") ?? "";
