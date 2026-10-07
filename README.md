@@ -148,6 +148,38 @@ REMEMBRANCER_LLM_URL=http://ceres:8000/v1 REMEMBRANCER_LLM_MODEL=qwen3.8-flash-n
 remembrancer apply /tmp/gather.json   # after reading it
 ```
 
+**What happens to a run's proposals.** `--save F` keeps them in a file. `--queue` puts them in `.remembrancer/proposals/` for review: `remembrancer proposals` lists the queue, `proposals show NAME` groups a file's actions by case with the entries' titles, `apply NAME` applies one (it moves to `proposals/applied/`), and `proposals reject NAME --why "…"` moves it to `proposals/rejected/` with a line in the curation log. `--apply` applies a gather run at once when its dry run is clean, and changes nothing when it is not: gather actions are reversible metadata (a tag, a link, a flag, a suggestion), so they need no review. Stronger runs that rewrite or move entries go through the queue.
+
+**Is a model good enough to run unattended?** Score it against a packet with known good answers:
+
+```sh
+remembrancer curate --eval ~/devel/personal/remembrancer/eval/iapetus-gather-1 \
+  --curator "bun ~/devel/personal/remembrancer/curators/openai-compatible.ts" [--curator "…another…"]
+```
+
+For each curator it prints precision and recall per action (an action matches gold when its kind and the IDs it names match; labels and reasons are not compared), the cluster agreement (each gold cluster's best overlap with a proposed one), how many actions a dry run accepts, and how many of the cases gold leaves alone it also left alone. `eval/iapetus-gather-1/` holds 12 iapetus cases and a first gold answer to correct (its README says why each answer is what it is). Pass several `--curator`s to compare models on one packet.
+
+**A daily gather run** with systemd, once a model scores well enough (a user unit, here for iapetus):
+
+```ini
+# ~/.config/systemd/user/remembrancer-gather.service
+[Service]
+Type=oneshot
+WorkingDirectory=%h/devel/personal/iapetus
+Environment=REMEMBRANCER_LLM_URL=http://ceres:8000/v1 REMEMBRANCER_LLM_MODEL=qwen3.8-flash-next REMEMBRANCER_LLM_KEY=local
+ExecStart=/bin/sh -lc 'remembrancer curate --mode gather --curator "bun %h/devel/personal/remembrancer/curators/openai-compatible.ts" --apply'
+
+# ~/.config/systemd/user/remembrancer-gather.timer
+[Timer]
+OnCalendar=*-*-* 06:40
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Then `systemctl --user enable --now remembrancer-gather.timer`. Use `--queue` instead of `--apply` to review each run first.
+
 ### Serving from a headless machine
 
 By default the UI listens on 127.0.0.1 only. `--host ADDR` binds another address, such as `0.0.0.0`, a LAN IP or a Tailscale IP. Beyond loopback, every request needs an **access key**, because anyone who can edit `rules.md` can steer the agents that read it:

@@ -7,7 +7,8 @@
 import { attention } from "./analyse";
 import { drift } from "./anchors";
 import { type Entry, hashText, mentions, today } from "./model";
-import type { Project } from "./project";
+import { type Project, RefusedError } from "./project";
+import { type Proposals, label, parseProposals } from "./proposals";
 import { Index } from "./search";
 import { effectiveDate, stale, tagsOf } from "./signals";
 
@@ -229,4 +230,34 @@ export function packetSize(p: Packet): { cases: number; byKind: Record<string, n
 // The IDs an action names that must be in the packet (its subject, never a link's target).
 export function subjects(a: { id?: string; from?: string; members?: string[] }): string[] {
   return [a.id, a.from, ...(a.members ?? [])].filter((x): x is string => !!x).map((x) => x.toUpperCase());
+}
+
+// Run a curator command: the packet on its stdin, proposals on its stdout.
+// It runs outside the lock (it may take minutes); its stderr passes through.
+// `proposals` is null when it proposed nothing.
+export async function callCurator(command: string, packet: Packet, { quiet = false } = {}): Promise<{ proposals: Proposals | null; seconds: number }> {
+  const start = performance.now();
+  const proc = Bun.spawn(["sh", "-c", command], { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: quiet ? "ignore" : "inherit" });
+  proc.stdin.write(JSON.stringify(packet));
+  proc.stdin.end();
+  const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  const seconds = Math.round((performance.now() - start) / 100) / 10;
+  if (code !== 0) throw new RefusedError(`the curator "${command}" exited ${code}`);
+  let raw: { actions?: unknown[] } = {};
+  try {
+    raw = JSON.parse(text);
+  } catch {}
+  if (Array.isArray(raw.actions) && raw.actions.length === 0) return { proposals: null, seconds };
+  return { proposals: parseProposals(text, "the curator's output"), seconds };
+}
+
+// What makes proposals no answer to this packet: another mode or packet, or
+// an action on an entry outside it.
+export function packetProblems(p: Proposals, packet: Packet): string[] {
+  const known = new Set(packet.cases.flatMap((c) => c.entries.map((e) => e.id)));
+  return [
+    ...(p.mode !== packet.mode ? [`the curator's mode is ${p.mode}, not ${packet.mode}`] : []),
+    ...(p.packet !== packet.packet ? [`the proposals answer packet ${p.packet}, not ${packet.packet}`] : []),
+    ...p.actions.flatMap((a, i) => subjects(a).filter((id) => !known.has(id)).map((id) => `${label(a, i)}: ${id} is not in the packet`)),
+  ];
 }

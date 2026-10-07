@@ -5,8 +5,10 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { briefData, renderBrief } from "./brief";
 import { formatPlan, planTree, stale, waiting } from "./signals";
-import { LOG, ProposalsRefusedError, apply, applyProposals, label, parseProposals } from "./proposals";
-import { type Scope, buildPacket, packetSize, subjects } from "./curate";
+import { LOG, ProposalsRefusedError, apply, applyProposals } from "./proposals";
+import { type Scope, buildPacket, callCurator, packetProblems, packetSize } from "./curate";
+import { evaluate, formatScores } from "./eval";
+import { enqueue, listQueue, markApplied, rejectQueued, resolveQueued, showQueued } from "./queue";
 import { formatHits, search } from "./search";
 import { anchorCitations, anchorDefinitions, repoOf } from "./anchors";
 import { type CheckResult, recordChecks, runChecks } from "./check";
@@ -95,12 +97,21 @@ usage:
                                      through config.json's check.test, or cmd: command); pass, FAIL
                                      with the last 20 lines, or skipped; a pass sets checked:.
                                      Exit 1 on any failure
-  remembrancer curate --mode gather [--scope active|archive|all] [--out F] [--curator "CMD" [--save F]]
+  remembrancer curate --mode gather [--scope active|archive|all] [--out F]
+                      [--curator "CMD" [--save F | --queue | --apply]]
                                      a packet of small cases (drift, inbox, alike entries, stale)
                                      for a cheap model to classify. --out writes it (else stdout).
-                                     --curator pipes it to CMD, reads proposals from CMD's stdout,
-                                     and dry-runs them, applying nothing; --save keeps them for
-                                     remembrancer apply. Example curators: curators/ (README)
+                                     --curator pipes it to CMD and dry-runs the proposals CMD
+                                     prints; --save keeps them, --queue puts them in the queue for
+                                     review, --apply applies them (gather only) when the dry run
+                                     is clean. Example curators: curators/ (README)
+  remembrancer curate --eval DIR --curator "CMD" [--curator "CMD2"]...
+                                     score curators on DIR/packet.json against DIR/gold.json:
+                                     precision and recall per action, cluster agreement, dry-run
+                                     acceptance, and the cases they rightly left alone
+  remembrancer proposals [list] | show NAME | reject NAME --why "…"
+                                     the queue in .remembrancer/proposals/: show groups a file's
+                                     actions by case, with titles; apply NAME applies one
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -412,9 +423,13 @@ async function main(argv: string[]) {
     }
     case "apply": {
       const path = args.find((a) => !a.startsWith("--"));
-      if (!path) fail(2, "usage: remembrancer apply FILE [--dry-run] [--json]", json);
+      if (!path) fail(2, "usage: remembrancer apply FILE|QUEUED [--dry-run] [--json]", json);
       const dryRun = flag("--dry-run");
-      const applied = await apply(requireRoot(), resolve(path!), { dryRun });
+      const root = requireRoot();
+      // A name in the queue (remembrancer proposals list) or a path.
+      const queued = resolveQueued(root, path!);
+      const applied = await apply(root, queued ?? resolve(path!), { dryRun });
+      if (queued && !dryRun) markApplied(root, queued);
       if (json) console.log(JSON.stringify({ ok: true, dryRun, applied }, null, 2));
       else {
         for (const a of applied) console.log(`${a.action} ${a.id}: ${a.result}`);
@@ -475,55 +490,83 @@ async function main(argv: string[]) {
       return;
     }
     case "curate": {
-      const { opt, has } = parseArgs(args, ["--mode", "--scope", "--out", "--curator", "--save"]);
+      const { opt, has } = parseArgs(args, ["--mode", "--scope", "--out", "--curator", "--save", "--eval"]);
+      const curators = opt("--curator");
+      const root = requireRoot();
+      const evalDir = opt("--eval")[0];
+      if (evalDir) {
+        if (!curators.length) fail(2, 'usage: remembrancer curate --eval DIR --curator "CMD" [--curator "CMD2"]...', json);
+        const scores = await evaluate(root, evalDir, curators);
+        console.log(json ? JSON.stringify({ ok: true, scores }, null, 2) : formatScores(scores));
+        return;
+      }
       const mode = opt("--mode")[0];
       const scope = (opt("--scope")[0] ?? "active") as Scope;
-      if (mode !== "gather" || !["active", "archive", "all"].includes(scope)) {
-        fail(2, mode === "insight" ? "insight mode arrives in a later slice" : 'usage: remembrancer curate --mode gather [--scope active|archive|all] [--out F] [--curator "CMD" [--save F]]', json);
-      }
-      const root = requireRoot();
+      const usage = 'usage: remembrancer curate --mode gather [--scope active|archive|all] [--out F] [--curator "CMD" [--save F | --queue | --apply]]';
+      if (mode !== "gather" || !["active", "archive", "all"].includes(scope)) fail(2, mode === "insight" ? "insight mode arrives in a later slice" : usage, json);
+      if ([has("--queue"), has("--apply"), !!opt("--save")[0]].filter(Boolean).length > 1) fail(2, "choose one of --save, --queue and --apply", json);
       const packet = buildPacket(await loadProject(root), { scope });
       const size = packetSize(packet);
       const summary = `packet ${packet.packet}: ${size.cases} cases (${Object.entries(size.byKind).map(([k, n]) => `${n} ${k}`).join(", ") || "none"}), about ${size.tokens} tokens; ${size.meanCaseTokens} per case on average, ${size.maxCaseTokens} at most`;
       const out = opt("--out")[0];
       if (out) await Bun.write(out, JSON.stringify(packet, null, 2) + "\n");
-      const curator = opt("--curator")[0];
-      if (!curator) {
+      if (!curators.length) {
         if (out) console.log(json ? JSON.stringify({ ok: true, ...size, packet: packet.packet, out }, null, 2) : `${summary}\nwritten to ${out}`);
         else console.log(JSON.stringify(packet, null, 2));
         return;
       }
       if (!json) console.error(summary);
-      // The curator runs outside the lock: it may take minutes.
-      const proc = Bun.spawn(["sh", "-c", curator], { cwd: process.cwd(), stdin: "pipe", stdout: "pipe", stderr: "inherit" });
-      proc.stdin.write(JSON.stringify(packet));
-      proc.stdin.end();
-      const [text, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-      if (code !== 0) fail(1, `the curator exited ${code}; nothing applied`, json);
-      let raw: { actions?: unknown[] } = {};
-      try {
-        raw = JSON.parse(text);
-      } catch {}
-      if (Array.isArray(raw.actions) && raw.actions.length === 0) {
+      const { proposals } = await callCurator(curators[0], packet);
+      if (!proposals) {
         console.log(json ? JSON.stringify({ ok: true, applied: [], dryRun: true }, null, 2) : "the curator proposed nothing");
         return;
       }
-      const proposals = parseProposals(text, "the curator's output");
-      const known = new Set(packet.cases.flatMap((c) => c.entries.map((e) => e.id)));
-      const problems = [
-        ...(proposals.mode !== "gather" ? [`the curator's mode is ${proposals.mode}, not gather`] : []),
-        ...(proposals.packet !== packet.packet ? [`the proposals answer packet ${proposals.packet}, not ${packet.packet}`] : []),
-        ...proposals.actions.flatMap((a, i) => subjects(a).filter((id) => !known.has(id)).map((id) => `${label(a, i)}: ${id} is not in the packet`)),
-      ];
+      const problems = packetProblems(proposals, packet);
       if (problems.length) throw new ProposalsRefusedError(problems);
+      // Always a dry run first: a file that would be refused is neither queued nor applied.
+      const dry = await applyProposals(root, proposals, "curator output", { dryRun: true });
       const save = opt("--save")[0];
       if (save) await Bun.write(save, JSON.stringify(proposals, null, 2) + "\n");
-      const applied = await applyProposals(root, proposals, save ? basename(save) : "curator output", { dryRun: true });
-      if (json) console.log(JSON.stringify({ ok: true, dryRun: true, applied, saved: save ?? null }, null, 2));
-      else {
-        for (const a of applied) console.log(`${a.action} ${a.id}: ${a.result}`);
-        console.log(`dry run: ${applied.length} action${applied.length === 1 ? "" : "s"} would apply; nothing written.${save ? ` To apply: remembrancer apply ${save}` : " Add --save F to keep them, then remembrancer apply F."}`);
+      let queued: string | null = null;
+      let applied: typeof dry | null = null;
+      if (has("--queue")) queued = await enqueue(root, proposals, packet);
+      if (has("--apply")) {
+        // D1: a gather run's actions are reversible metadata, so they apply without review.
+        if (proposals.mode !== "gather") fail(2, "only a gather run applies directly; queue the others for review", json);
+        applied = await applyProposals(root, proposals, `curate ${packet.packet}`);
       }
+      if (json) console.log(JSON.stringify({ ok: true, dryRun: !applied, applied: applied ?? dry, saved: save ?? null, queued }, null, 2));
+      else {
+        for (const a of applied ?? dry) console.log(`${a.action} ${a.id}: ${a.result}`);
+        const n = (applied ?? dry).length;
+        console.log(
+          applied ? `applied ${n}; logged in ${DIR}/${LOG}`
+          : queued ? `queued ${n} action${n === 1 ? "" : "s"} as ${queued}: remembrancer proposals show ${queued}, then apply or reject it`
+          : `dry run: ${n} action${n === 1 ? "" : "s"} would apply; nothing written.${save ? ` To apply: remembrancer apply ${save}` : " Add --queue, --save F or --apply."}`,
+        );
+      }
+      return;
+    }
+    case "proposals": {
+      const { pos, opt } = parseArgs(args, ["--why"]);
+      const [sub = "list", name] = pos;
+      const root = requireRoot();
+      if (sub === "list") {
+        const list = await listQueue(root);
+        if (json) console.log(JSON.stringify({ queue: list }, null, 2));
+        else if (!list.length) console.log("the queue is empty");
+        else for (const q of list) console.log(`${q.name}  ${q.mode} by ${q.by}, ${q.made}, ${q.actions} action${q.actions === 1 ? "" : "s"}`);
+        return;
+      }
+      if (!name || !["show", "reject"].includes(sub)) fail(2, 'usage: remembrancer proposals [list] | show NAME | reject NAME --why "…"', json);
+      if (sub === "show") {
+        console.log(await showQueued(root, await loadProject(root), name));
+        return;
+      }
+      const why = opt("--why")[0];
+      if (!why) fail(2, 'reject needs --why "…"', json);
+      await rejectQueued(root, name, why!);
+      console.log(json ? JSON.stringify({ ok: true, rejected: name }, null, 2) : `rejected ${name}; logged in ${DIR}/${LOG}`);
       return;
     }
     case "brief": {

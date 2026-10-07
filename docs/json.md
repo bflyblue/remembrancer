@@ -132,3 +132,23 @@ Each rule's last result is also kept in `.remembrancer/log/checks.json`, which t
 `kind` is `drift`, `inbox`, `similar` or `stale`. An entry is in at most one case; a case has at most 12 entries and
 about 6,000 characters of body (a longer body is cut and marked `"truncated": true`). With `--curator`, `--json`
 prints `{ok, dryRun: true, applied, saved}`.
+
+## `curate --eval DIR --curator CMD… --json`
+
+```json
+{ "ok": true, "scores": [ { "curator": "…", "seconds": 41.2,
+  "byAction": [ { "action": "cluster", "gold": 4, "predicted": 3, "matched": 2, "precision": 0.67, "recall": 0.5 } ],
+  "total": { "gold": 12, "predicted": 9, "matched": 7, "precision": 0.78, "recall": 0.58, "f1": 0.67 },
+  "clusterAgreement": 0.81, "accepted": { "ok": 9, "of": 9 }, "leftAlone": { "gold": 7, "respected": 6 } } ] }
+```
+
+`precision` or `recall` is null when there is nothing to divide by; `error` appears when the curator failed or its
+output was refused whole (it then scores as proposing nothing).
+
+## `proposals [list] --json`
+
+```json
+{ "queue": [ { "name": "20261007T184512-gather.json", "mode": "gather", "by": "openai-compatible:qwen3.8-flash-next", "made": "2026-10-07", "actions": 14, "packet": "…" } ] }
+```
+
+`curate … --queue --json` adds `"queued": NAME`; `--apply --json` gives `dryRun: false` and the applied actions.

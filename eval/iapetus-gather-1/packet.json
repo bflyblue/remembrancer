@@ -1,0 +1,760 @@
+{
+  "packet": "90bfec337ca227c9",
+  "mode": "gather",
+  "made": "2026-10-07",
+  "owner": "shaun",
+  "scope": "active",
+  "cases": [
+    {
+      "case": "c1",
+      "kind": "drift",
+      "evidence": "T134: cites build.sh, but several tracked files have that name: give its path | T176: cites lib/Iapetus/Solver/Crossing.hs, which does not exist (moved? cite an anchor instead); cites Steer.hs, which does not exist (moved? cite an anchor instead) | T177: cites Solver/Flyby.hs, which does not exist (moved? cite an anchor instead); cites Maneuver/PoweredFlyby.hs, which does not exist (moved? cite an anchor instead) | T178: cites Maneuver/Shift.hs, which does not exist (moved? cite an anchor instead); cites Station.hs, which does not exist (moved? cite an anchor instead) | T220: cites summary.md, but several tracked files have that name: give its path",
+      "allowed": [
+        "flag",
+        "link",
+        "retag"
+      ],
+      "entries": [
+        {
+          "id": "T134",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Ship concepts: do the class names go into the wiki?",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-29"
+          },
+          "body": "Longsight, Kestrel, Mule and Lantern, in `docs/archive/ship-concepts/`. What to commit was\nsettled in `49065c5`: the scripts, GLB models and hero renders, with the other formats\ngit-ignored and rebuilt by `build.sh`.",
+          "hash": "b8940305a9e54716"
+        },
+        {
+          "id": "T176",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Port routes between a planet and its moons",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-30",
+            "refs": "T175, Q114"
+          },
+          "body": "Only the legacy planner flew between a planet and its moons; it was deleted in T175. Read\nit at `412f938` (`lib/Iapetus/Solver/Crossing.hs`, `Plan.hs` `route`/`methodsFor`,\n`Steer.hs`) with [Half-Turn Transfers](../wiki/reference/Half-Turn%20Transfers.md).\nPort: the crossing into a child and the climb out of a moon into an orbit around its\nparent (`climbTo`); the half-turn doctrine (`heldPlane`, the injection fan at three\nquarters of the Hohmann time, `crossingFraction`), with `Lambert.planInPlane`, kept in\nthe kernel for it; the staging ellipse (`stagingRadii`); and the moon floors' aim\nallowance, `2·sphere/flight` (`Oberth.aimAllowance`, deleted). Acceptance, from the\nlegacy `test/Main.hs` at `412f938` (crossings L2474–2562, plan laws L2748–2995): LEO to\nLuna, injection under 4.5 km/s and the cheapest 3.5–5.5 km/s; Titan by way of Saturn,\nstaged in an ellipse, under 14.5 km/s, handing off at Earth, Saturn and Titan; the climb\nfrom Luna to ten Earth radii 1.4–1.6 km/s (the dearest under 1.8); Luna to Mars by way\nof Earth 6.5–8.0 km/s; every route real and valid.",
+          "hash": "67aa535c3206ddc0"
+        },
+        {
+          "id": "T177",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Port multi-pass, powered and real-date flybys",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-30",
+            "refs": "T175"
+          },
+          "body": "The planner's assist (`Strategies.viaAssist`) passes one body once; the legacy flyby solver\n(`Solver/Flyby.hs`, `Maneuver/PoweredFlyby.hs` at `412f938`, deleted in T175) also\npriced a powered pass and chained passes on real dates. Port them, reading\n[Voyager 2 Reference](../wiki/reference/Voyager%202%20Reference.md). Acceptance, from the\nlegacy `test/Main.hs` at `412f938` (L2380–2461): Voyager 2's Jupiter pass settles at both\nspheres with a periapsis of 640,000–750,000 km and a periapsis impulse under 100 m/s,\nhanding off at Earth and Jupiter; the grand tour's four legs (launch −8168.9 d, Jupiter\n−7480.56, Saturn −6702.36, Uranus −5089.75, Neptune −3781.34 d from J2000) fly as one\nreal, valid path, handing off at Earth, Jupiter, Saturn and Uranus, with 20–40 t of\npropellant left.",
+          "hash": "9d1917e265fba309"
+        },
+        {
+          "id": "T178",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Port single-body orbit changes",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-30",
+            "refs": "T175"
+          },
+          "body": "The planner reaches another body; only the legacy solvers changed an orbit around one\nbody (`Solver.hohmannTo`, `biEllipticTo`, `alignTo`; `Maneuver/Shift.hs` and\n`Station.hs` at `412f938`, deleted in T175). Port them as strategies for an objective at\nthe body the ship is at. Acceptance, from the legacy `test/Main.hs` at `412f938`: the\nsolver laws (L2093–2277), each shift arriving on its target circle or plane and pricing\nas its plan, and a chemical stage flying each as a real, valid path; Hohmann cheaper\nthan bi-elliptic from 7,000 to 14,000 km with a 100,000 km apex; the station descent at\nMars from its sphere to 20,428 km at 599.7 m/s over 2.48e6 s; the plane alignment\nburning at the planes' intersection within one period.",
+          "hash": "ad74cf9543fd5ee3"
+        },
+        {
+          "id": "T220",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Strategy study: every HTN strategy in the literature, per compound task, ship class and band",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-01",
+            "refs": "T216, T217, T218, T219, A178"
+          },
+          "body": "Shaun asked for a full, literature-backed list of the strategies the outer layer should have,\nfor every compound task (departure, capture, crossings, flybys, rendezvous, in-well changes,\nsurface, staging, waiting, aborts, tours, external momentum) against every band and ship class,\nthen to implement them slowly. The 22-strategy catalogue in `Flight Regimes.md` was written from\nmission practice and is checked against, not taken as the answer. Research only, no code, in\n`docs/strategy-study/` (brief in its README): seven reports, then `summary.md` with the matrix\nand the implementation order, then wiki rows and tasks. T216–T219 (capture) stand; the study may\nreorder them.\n\n*2026-10-01:* the seven reports and `summary.md` are written (about 120 strategies, prerequisites\nP1–P19, 14 waves, 11 open questions). Next, after Shaun reads it: the wiki rows, the corrections\nhe approves, and a task per wave.",
+          "hash": "49e7c5a59dc87896"
+        }
+      ]
+    },
+    {
+      "case": "c2",
+      "kind": "drift",
+      "evidence": "T175: cites test/Outer.hs, which does not exist (moved? cite an anchor instead); cites test/Planner.hs, which does not exist (moved? cite an anchor instead); cites test/Kernel.hs, which does not exist (moved? cite an anchor instead) | T149: cites docs/planning/, which does not exist (moved? cite an anchor instead) | T099: cites index.html, but several tracked files have that name: give its path; cites kit/shipkit.py, which does not exist (moved? cite an anchor instead); cites renders/lineup.png, which does not exist (moved? cite an anchor instead)",
+      "allowed": [
+        "flag",
+        "link",
+        "retag"
+      ],
+      "entries": [
+        {
+          "id": "T175",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Retire the legacy planner and rename Outer",
+          "meta": {
+            "done": "2026-09-30",
+            "refs": "T123, T176, T177, T178, T157, LR011, LR014"
+          },
+          "body": "T123's first half, in four commits after the audit variants (T155–T157).\n- **Moved.** The craft presets and modifiers to `Iapetus.Craft.Presets`; `Play.summary`\n  into `Iapetus.Trace.Document` (the document's `summary`); `Solver.Windows` to\n  `Iapetus.Windows` with its own `ScanError` (`Unavailable`, `Playback`, `Quantity`),\n  which `Example`'s `Scanning` takes; the patched-conic convention's reason, known only\n  to the flyby solver, beside `Reach.sphereJoin`. `Search.Pareto` keeps `Measures`,\n  `costOf` and `kneeOf`; its pruning went with `Plan`.\n- **Deleted.** `Plan`, `Steer`, `Solver`, `Solver.Crossing`, `Solver.Flyby`,\n  `Search.Stepper`, `Maneuver.Shift`, `Maneuver.Station`, `Maneuver.PoweredFlyby`,\n  `Play`; the kernel exports left without a caller: `Burn.integrateGuided`,\n  `Burn.matchAsymptote`, `Kepler.conicPlaneNormal`, `Oberth.aimAllowance`,\n  `Path.frameAt`, `Path.arcConic`; `Realise.burnArc` is private now. With\n  `integrateGuided` went its measured 0.27% waste (about 13.5 m/s on a 5 km/s burn,\n  velocity to go flipping sign at the last short steps' fourth stage); the thrust law\n  (LR014) now covers three integrators, programme, along and tangential, and LR014's\n  wording, which names none, still reads true.\n- **Kept, against the plan's list.** `Path.splice`/`SpliceError`: the kernel's path and\n  realise laws build their kicked paths with it. `Lambert.planInPlane`: kernel, tested,\n  and the held plane the moon routes' port (T176) needs.\n- **Renamed.** `Iapetus.Outer.X` is `Iapetus.X`; `test/Outer.hs` is `test/Planner.hs`,\n  `test/Main.hs`'s kept groups `test/Kernel.hs`, and `test/Main.hs` wires the catalogue,\n  kernel and planner suites. Kernel's trace-document tests fly the planner's worked\n  example, the one planner fixture in Kernel. LR001, LR011 (its grep now lists the\n  planner's modules), the five `enforced-by` entries, AGENTS.md, the skill's triggers,\n  README (its GHCi session is now the worked example), the cabal description and seven\n  wiki pages follow the rename.\n- **Tests.** 229 → 184: the stepper, solver laws, flybys, grand tour, crossings,\n  steering, plan laws, asymptote guidance, and the Shift and Station cases went; their\n  acceptance figures are in the port tasks T176–T178, with the legacy code at `412f938`.\n  Forced `-j4` rebuild warning-clean after each step; trace JSON and text byte-identical\n  to the audit variants' commit over fifteen scenarios (three exported menus); the\n  viewer's 32 Playwright specs pass.\n- **Left broken, as the user accepted.** The denotational-design guide still names the\n  legacy modules (`Iapetus.Play`, `Solver`, `Plan`, `Search.Stepper`: chapter 9's module\n  map, chapter 10's toolbox, chapters 8 and 12, appendix B); its companion package does\n  not depend on `iapetus`.",
+          "hash": "2c8d34c5ee0f4721"
+        },
+        {
+          "id": "T149",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Migrate docs/planning into .remembrancer",
+          "meta": {
+            "done": "2026-09-29",
+            "priority": "P1",
+            "added": "2026-09-29",
+            "refs": "A123, A128, A129, A132, LR001, LR016"
+          },
+          "body": "Outcome: `docs/planning/` is gone; its last full version is at `49065c5`. Open\nquestions are Q106–Q152 (47, four since closed as A123, A128, A129, A132);\nanswers keep their numbers, padded (A001–A105, A063 a stub for a skipped number), each\nclosing answer's **Question** holding its legacy question's text; A153 and A154 were\nwritten for Q50 and Q51, answered without a number. Done is T001–T100 (the 2026-09-25 to\n26 section split into its 61 dated items), open work T101–T148. The outer-layer skill's\nrules are LR001–LR017 (rule N is R0NN, 5a is LR017), active; the skill is now their index.\nPlans are in `docs/plans/`, the reading list at `docs/to-learn.md`.\n\nFindings: old IDs in code, the wiki and commits stay valid through\n`archive/legacy-ids.md` (answered Q to its closing A, open Q to its new number) and the\nannotations `Q47→A074` and `rule 8→LR008` in entry text. Legacy Q/A pairing was\nmany-to-many in 12 of 39 closings; remembrancer's Q002 (same number plus `closes:`,\n`amends:`), Q003 (the ID counter and collisions) and Q004 (first-class plans) came from\nthis and are the user's to decide. LR011's **Why:** and LR012's **Check:** were written at\nmigration; the skill gave none. The constraint study's append-only log still names\n`docs/planning/` paths as history.",
+          "hash": "17345e5dabd88ce"
+        },
+        {
+          "id": "T099",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Viewer mockups and ship concepts",
+          "meta": {
+            "done": "2026-09-29"
+          },
+          "body": "- **Viewer mockups** in `docs/archive/viewer-mockups/` (index at `index.html`,\n  published under `/www/doc/iapetus/viewer-mockups/`): four working pages\n  over the committed Earth-to-Mars trace that drive the viewer's own\n  `Trace` and `Scene` — A quiet map, B flight log, C telemetry HUD,\n  D compare flights (D's other routes illustrative). A shared data layer\n  (`shared.js`) derives per-arc, per-burn and per-leg numbers, the ship's\n  reading at an instant, a mass-continuity check, and the thrust\n  direction during burns from the integrator steps (dv/dt − g(r); 12.03\n  against F/m = 12.00 m/s² mid escape burn), drawn as a heading chevron\n  with a plume. What they found: the capture burn's mass jump (Q152), coasts\n  drawn kinked by time-uniform sampling (up to 11.5° per vertex, 122 km\n  off; anomaly sampling 0.5°, 3 km), planets vanishing zoomed out, label\n  pile-up, local mode's drift (Q86→A105), spirals labelled \"RIDE\". Next:\n  [viewer-views.md](../docs/plans/viewer-views.md) (A101).\n- **Ship concepts** in `docs/archive/ship-concepts/` (uncommitted; published under\n  `/www/doc/iapetus/ship-concepts/` with a 3D viewer): four example craft\n  built by Blender scripts over a small kit (`kit/shipkit.py`), exported as\n  GLB, FBX, OBJ and .blend with named parts and `socket_*` attach points —\n  Longsight NEP surveyor (Long Survey), Kestrel NTR tug sized to the\n  sample trace's craft and laid out for FDM printing (Industrial\n  Footholds), Mule salt-water hauler (Solar Network), Lantern D–³He torch\n  corvette (Threshold). Each has a design note tying its layout to the\n  wiki's cards and heat rules; `renders/lineup.png` shows them at true\n  scale.",
+          "hash": "f73986a33633892f"
+        }
+      ]
+    },
+    {
+      "case": "c5",
+      "kind": "drift",
+      "evidence": "A074: cites test/Outer.hs, which does not exist (moved? cite an anchor instead)",
+      "allowed": [
+        "flag",
+        "link",
+        "retag"
+      ],
+      "entries": [
+        {
+          "id": "A074",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "The gate's estimate holds at the member as it does at the seed",
+          "meta": {
+            "answered": "2026-09-27",
+            "area": "kernel",
+            "legacy-question": "Q47",
+            "refs": "A053, A054, A056, A073"
+          },
+          "body": "**Question** **Q47. Does the sweep-loss estimate hold against the realiser?**\n*(2026-09-26)* The gate now prices a pass's waste as  − sin(θ/2)/(θ/2)@\nof its Δv, the fixed-aim estimate, and the menu quotes it. Step 3 flies\nthese passes through the realiser; compare the Δv the tank pays with the\nimpulse and the estimate, over sweeps from 20° to 70°, before the\nestimate decides anything more than the order of a menu. Owner: the\nouter layer proof of concept, step 3.\n*First data 2026-09-26 (step 3a, the realiser's correction against the\nestimate):* 11° sweep 5.7 against 5.8 m/s; 21° to 28° on the torch a\nconstant 3.9 against 4.0 to 7.3; 30° 6.5 against 11.4; 38° 8.3 against\n19.4; 46° 38 against 42; 51° 45 against 65. The estimate bounded the\ncorrection every time, by one to two and a half. The correction mixes the\nenergy shortfall with the drift's velocity signature; measure the\nachieved excess against the planned one next.\n*Energy data 2026-09-26 (step 3b, the burn's energy miss at cutoff as\nΔv):* from a circular orbit the estimate is exact, 18° 15.0 against\n15.1 m/s and 46° 42.4 against 42.2; on the eccentric ellipses of later\npasses it overshoots, 51° 50 against 65 and the torch's equal passes a\nconstant 4 against 4 to 7. The cause is the rate: the estimate sweeps at\nthe perigee's angular rate, and on an ellipse the burn's mean rate is\nlower. Candidate fix: read the sweep as the true anomaly the burn spans\non its own conic, not ω at the impulse times the burn's clock.\n*Read off the conic 2026-09-27 (A053):* the sweep is now the velocity's\nturn over the coasting conic, so the estimate no longer sweeps at the\nperigee's rate; the torch's 5638 m/s capture read 405° and now 14°. New\ndata: a 12.4° turn burn on the torch, 50° sweep, correction 44.6 against\nan estimate of 51.7 m/s. Open still: on a braking burn the coasting\nestimate understates the flown sweep (14° estimated, 43° flown, since the\nburn slows the ship), and the estimate is still to be compared with what\nthe full solve pays over a range of sweeps.\n*Measured at the seed 2026-09-27 (A054):* the gate integrates the burn\nand reads the energy shortfall as Δv, so the menu's waste is a measurement\nof the seed's burn, not an estimate. What remains open is the seed against\nthe member: the solve moves the burn, and the waste it finally pays is the\njoin's to read (A050). The sweep-loss formula stays as the flight report's\nyardstick beside the correction, and as the reading where a burn is not\nflown.\n*Closed form again 2026-09-27 (A056):* the gate estimates the waste on\nthe half-impulse conic and a test holds it within the margin of the\nintegrated burn over circles, ellipses and hyperbolas; the widest gap is\nthe torch's 77° escape, read at 348 against 484 m/s measured.\n*Closed 2026-09-27 (A074):* measured over 196 finite burns on 55\nconverged routes of four fixtures, at the seed and at the member. Where\nthe reading's conic turns as far as the flight does, every held burn\nreads within the margin of its flown waste at both points (×0.80–0.96\non escapes and passes, ×1.06–1.47 on brakes, the member moving the ratio\nby under 0.02) and every rotating burn's saving against the held aim is\nwithin the margin (×0.68–1.00); beyond it lie the torch's 9157 m/s\nescape after a 47.7° turn (66° read, 153° flown, 11.9 percent read\nagainst 31.4 flown) and the helium torch's 4802 m/s brachistochrone\nescape (47° read, 112° flown, 8.3 against 19.2), and the parent-field\nburns, whose sign the two do not agree on. The flown excess leaves\n0.2–2.1° off the sized direction on a held aim and 2.4–5.4° on a\nrotating one, 1.2 to 7.6 percent of the burn if bought at the sphere,\nand 13.4° (23.5 percent) on the torch's extreme; nothing is bought,\nsince the join reads the asymptote reached and the member's burn grows\nby its energy waste alone (the torch's three passes: 57 against 59\nm/s). Q141 holds the residue.\n*Literature and the rotating aim 2026-09-27 (A073):* the estimate's\nstructure is Robbins's; the 2019 thesis found his bound about a quarter\nover the steered losses and under the held aim's at long burns, which\nis the sign of our 77° gap. With the aim rotating (`readTurning`) the\nreading is held to its oracle by the ordering against the held aim and\nthe saving between them, both within the margin over the same thirty\ncases; its own miss on long brakes is the fall inward a fixed conic\ncannot see (Q141).\n\n**Answer** **The gate's estimate holds at the member as it does at the seed; the flown excess leaves up to five degrees off the direction its impulse was sized for, and nothing is bought for that downstream.** *(\nstep 5, twenty-first part; closes Q47)* Q47 asked two things the gate's\nclosed form (A056) had not been measured on: whether the burn the full\nsolve settles on wastes what the estimate said at the seed, and whether\nthe flown burn leaves with the planned excess direction and what a miss\nthere costs downstream. The measurement is the `q47` group in\n`test/Outer.hs`: four fixtures (the D–T torch from low orbit, the\nnuclear-thermal stack scaled by five, the nuclear-thermal, and the\nhelium-3 torch parked at 36,000 km bound for a 20,000 km band), every\nroute of each menu whose skeleton builds, whose cheap solve prices whole\nand whose full solve converges (55 routes: 29, 15, 4 and 7), and every\nevent on them flown under a held or a rotating aim, 196 burns in all,\neach read at the seed and at the member. The estimate is `readBurn` or\n`readTurning` with the fixture's craft scaled to the mass the flight's\nfirst step carries (at the seed that is the cheap solve's\n`BurnRead.mass`, printed beside it and equal on every row), the event's\nstate and its impulse; the flown waste is `measureBurn`'s computation on\nthe skeleton's own flight, the energy the burn fell short of its impulse\nby, signed by the change the impulse meant, as Δv at cutoff; both as\nshares of the burn's Δv. The criterion is the oracle test's (A056):\nwithin the margin where the flown share exceeds a fifth of the\ntol\n…[truncated]",
+          "hash": "308728f002aea8a",
+          "truncated": true
+        }
+      ]
+    },
+    {
+      "case": "c9",
+      "kind": "drift",
+      "evidence": "A190: revisit-if \"two forms of one kind cannot be made to agree on their overlap, or a structural guarantee is needed that no type can carry\" may now hold: see A191, newer",
+      "allowed": [
+        "flag",
+        "link",
+        "retag"
+      ],
+      "entries": [
+        {
+          "id": "A190",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "A leg kind means a set of flight paths; forms represent it, and the planner picks forms up front by what the start guarantees",
+          "meta": {
+            "answered": "2026-10-05",
+            "area": "planner",
+            "revisit-if": "two forms of one kind cannot be made to agree on their overlap, or a structural guarantee is needed that no type can carry",
+            "refs": "R016, R002, R004, R005, T241, T242, Q187"
+          },
+          "body": "**Question** _(None asked: settled in step 3's design talk with Shaun, and checked against the denotational-design\nguide, chapters 8, 9 and 13.)_ How does the library hold several ways to build one leg, and who decides which is used?\n\n**Answer**\n- **The planner (the HTN) builds the problem's shape.** The ship's start is the world's state, fixed however awkward it\n  is. Every later state is a choice. Where the planner has that freedom, it offers alternatives built from forms that\n  are fast or stable for the case. The solver only solves the problem it is handed and never decides the structure.\n- **A leg kind is a meaning:** for a start, the set of easy-reading flight paths that do the job. For the impulsive\n  escape, a path is a coast on the start's orbit, one burn at the departure hyperbola's periapsis, then out to the\n  sphere. Events are questions asked of a path (where was the burn, where was the exit). Every form returns the kind's\n  event record, and its events are exactly those of the path it stands for (R004).\n- **A form is one representation of a kind:** its own variables, rows, seeds and choices. It makes two promises at\n  every start it accepts:\n  - **soundness:** nothing wrong, so every path it gives is of the kind;\n  - **completeness:** nothing missing, so over all its choices it gives every path of the kind. Otherwise a cheaper\n    route is silently never offered.\n\n  Two honest forms therefore agree wherever both apply, which is the cheap test (as chapter 9's forms and chapter 8's\n  corrector against Hohmann). A physically different leg (a burn away from periapsis, a dogleg) is a different kind.\n- **Choices are physical questions about a path,** defined once for the kind, so every form answers to the same\n  definition. The escape's sense is the sign of ĥ·n̂. Its lap is \"the opportunity nearest t_aim\", never relative to a\n  seed. Situation limits such as \"not before t_ready\" are keeps, not choices.\n- **Two kinds of domain:**\n  - **A value domain** says it works for these numbers. It is checked at each evaluation, and gives a typed reason\n    outside (chapter 13, clause 4). For example, an asymptote beyond the cone's reach.\n  - **A structural domain** says it works for this kind of start, for every value the solver could try. No check on\n    numbers can promise that, so it is a type (`CircleStart`). Only the world or a form built to guarantee it can make\n    one.\n- **Guarantees are by construction only.** A capture that parks on a circle produces a `CircleStart` only if it has one\n  radius variable. Two radii with an equality row are circular only once converged. Two radii held equal can be\n  released by revision. A form that claims a guarantee is tested for it: every end it produces, at any values, has the\n  promised shape.\n- **Easier to solve is not cheaper.** The circle pairing (a capture onto a circle, then the circle escape) is offered\n  beside the general one (an ellipse, then the escape from any conic), and the menu compares them (R002, R003).\n  A standing preference for circles, \"players like circles, and ships carry Δv for it\", is an input from the game or\n  the player through the objective or the default parked orbit (Q187), never the planner's own arithmetic.\n\n**Why:** a single general interface throws away forms that are cheap and stable where they apply. Stating the meaning\nfirst makes \"the same leg\" testable, and stating choices and guarantees on the meaning lets the planner chain forms\nsafely.\n\n**Alternatives considered:** one general form per leg (simpler, but slower and less stable in the common cases); the\nsolver choosing the structure (it can't know the whole plan, and its arithmetic would choose silently, R002); a\nstructural domain as a run-time check (it can't promise \"for every value\"); a choice relative to the seed (the\nmeaning would then depend on where the solve started).",
+          "hash": "b19efcf4c4a6f26c"
+        }
+      ]
+    },
+    {
+      "case": "c11",
+      "kind": "similar",
+      "evidence": "both refer to A166; both refer to T103; titles alike (T188, T225); titles alike (T185, T236); titles alike (T187, T188)",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T185",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Scoped names and handles between legs",
+          "meta": {
+            "priority": "P2",
+            "added": "2026-09-30",
+            "refs": "A166, T103, T107, A150, A066"
+          },
+          "body": "A166. First the design with the denotational-design skill: the meaning of a local name, a\nhandle and a slot. Then the pass over every leg: joins take handles from the legs they\njoin (the excess, the entry state, the mass T103 threads) instead of reading global\nstrings; `Refine` scopes each leg's events, variables and pins by its path in the plan\ntree at assembly; the assist's hand-written suffixes go. Before the first route that holds\na sub-part twice (a two-hop journey, two assists, a refuelling stop). After T103, which\nalready passes over every leg.\n\n*2026-09-30 (A171):* the direct leg read the exit's instant from \"t2\", which a spiral escape\ndoes not own; it now reads the escape's `leaving` closure. `Situation.exitDelivered` is a\nsecond piece the escape hands on (whether the excess was chosen); fold both into the\nhandle. The escape legs still read \"t2\" among themselves, as do other legs' joins.",
+          "hash": "176847d884ea0c05"
+        },
+        {
+          "id": "T236",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Step 0: the skeleton's meaning, with no physics",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-04",
+            "done": "2026-10-04",
+            "refs": "R005, R009, R012, R014, A166"
+          },
+          "body": "Variables, holds, conditions and the membership check, tested on a toy. Design note:\n`docs/plans/rebuild/step-0-skeleton.md`, reviewed by Shaun 2026-10-04 (handles from A166, the five open points as\nrecommended).\n\n`Iapetus.Planner.Problem` (450 lines) and `test/Rebuild.hs`: the six laws of the note plus the leg-from-scope\nand malformed-problem tests, and the boundary tests (R009, R012, and only `Units` importing units). 15 pass; the\nwhole suite, 223. Clean under hlint. Differences from the note, recorded there: rows need `Ord` for domain checks, a condition's reason\nfor having no value and a hold's reason are the problem's type parameters (`Problem why held`) rather than text, holds and seeds are partial maps\nby slot apart from the variables, `start` names any free variable left unseeded, conditions declare their row\ncount, and `problem` refuses malformed problems.",
+          "hash": "e2acb85e291c9380"
+        },
+        {
+          "id": "T187",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "The phasing loop's impulses as events on the ledger",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-30",
+            "refs": "T103, A085"
+          },
+          "body": "Found by T103. The phasing loop's two small impulses are the lowering's, not events, so\nthe ledger does not spend them and the escape after a loop starts heavier than the loop\nleft the ship; the mass-chain test leaves routes with a loop out. Make them events (or\ncharge them on the ledger) so the chain holds there too.",
+          "hash": "2c328b092d61fbb9"
+        },
+        {
+          "id": "T188",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Spiral legs flown from the ledger's mass",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-30",
+            "refs": "T103, LR009"
+          },
+          "body": "Found by T103. The spiral escape's and capture's flights are constants built at the\nstrategy's estimated craft, not rebased to the ledger's mass as the finite burns now are;\nthey agree only where every earlier spend is exact (impulses, spirals). Rebase them.",
+          "hash": "1446d01d61c1a807"
+        },
+        {
+          "id": "T133",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Viewer mass readouts",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-29",
+            "refs": "Q152, A152, T103"
+          },
+          "body": "They wait on burns starting at the mass the earlier burns flew.",
+          "hash": "7c17e520c93a67eb"
+        },
+        {
+          "id": "T225",
+          "kind": "T",
+          "file": "done.md",
+          "title": "The spiral capture's fall and spiral keep the seed's mass, not the mass the brake before them achieved",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-02",
+            "done": "2026-10-02",
+            "refs": "LR009, LR014, LR006, T103, A172, T213, T224"
+          },
+          "body": "A spiral capture's fall and spiral fly at the mass the burns before them achieved, read from the ledger (LR009). It was\nshaped once at the strategy's estimate; the solve then moved the burns before it:\n- the low-ceiling torch's fall started 10 kg lighter than its brake left it (389–1,659 kg before T224);\n- the electric freighter's started 233.8 kg heavier than its cruise left it.\n\n**Held ceiling (merge 38183c6).** Where the throttle holds the ceiling throughout at both masses, the path does not depend\non the mass (LR014), so the mass samples scale by achieved over estimate, exactly.\n\n**Full thrust (merge 05e5772).** The fall is re-settled at the ledger's mass. `Fall.resettle` runs the build's rounds of\nthe fixed point from no propellant under its last step guard, both frozen, so it is smooth in the mass (LR006). Readers:\n- the cruise's entry (`entryAt`, now on values) re-settles once per reading;\n- the capture's fall flight re-settles once per reading;\n- the spiral's start, mass and spans and the entry join read the fall's memoised flight;\n- what the leg is (fall, averaged spiral) stays the build's, since a radius read back off a flight sits on the circle\n  only to rounding.\n\nMeasured on the electric mission:\n- solve 3.8 s (main 0.79 s; 5.8 s re-settled in every form);\n- mass gap 3×10⁻⁸ kg;\n- final mass 21,749.6 kg (main overstated it at 21,969.6).\n\nOption 2 (rebuild and re-solve) was also exact: solves 0.93 s, but each rebuild re-ran the whole refinement (1.15 s).\nThe two options differed by 0.3 kg and 8.4 h only because the member is not unique (slack 89; the minimum-norm step lands\nnearest its start). Experiments kept as tags `archive/t225-diag`, `archive/t225-opt1` and `archive/t225-opt2`.\n\nFindings:\n- The settle takes 5 rounds; a warm start would save about one.\n- One re-settle per reading would couple the cruise's entry to the capture's event, a loop through the fall's rotation.\n- The low-ceiling torch and the electric mission both assert the mass chain to a milligram now.",
+          "hash": "9b0f41efedce606d"
+        },
+        {
+          "id": "T201",
+          "kind": "T",
+          "file": "done.md",
+          "title": "A burn's centroid lead cancels catastrophically for short low-flow burns",
+          "meta": {
+            "done": "2026-09-30",
+            "priority": "P1",
+            "added": "2026-09-30",
+            "refs": "A173, LR014, T103"
+          },
+          "body": "Found when the spiral line moved (A173) and the electric mission's cruise solved onto a\nmember with three segments at their one-second floor (2.4, 2.8 and 3.6 s): the lowered path\nput o.25's burn before o.24's (`EpochsDisjoint`). `Burn.centroidLead` computed\nm₀/ṁ − T/ln(m₀/m₁) plainly; for the electric freighter m₀/ṁ ≈ 4.5·10⁸ s and a two-second\nburn's mass ratio is 1 + 5·10⁻⁹, so the logarithm kept eight digits and the centroid came\nout ten seconds late (62 s for a 0.01 s burn). The throttled branch's\nm₀·ln(m₀/m_c) − (m₀ − m_c) cancelled the same way for a short full-thrust phase. Now both\nread x = ṁt/m₀ through `log1p`, with their series below x = 0.01. Test: \"a burn's centroid\nlies within it however short the burn and however slow the flow\" (fails on the old form).\nIt also cleared a false \"breaks leg order\" reading on one helium-torch route.",
+          "hash": "7e362e1972bf6ba1"
+        },
+        {
+          "id": "T186",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Low-thrust seeds fitted at the mass the earlier objectives leave",
+          "meta": {
+            "done": "2026-09-30",
+            "priority": "P2",
+            "added": "2026-09-30",
+            "refs": "A168, T103, LR002"
+          },
+          "body": "Outcome: A168. The turn that spent the mass before the cruise was a burn a low-thrust ship\ncannot make; \"turn at a node first\" now asks the gate and is struck in the spiral band.\nFindings: the electric mission's other route, with no turn, misses 40 spheres at the seed\nbefore and after T103: a seed outside the basin of its own, not a mass (not yet a task).",
+          "hash": "14d5b959fb869f04"
+        }
+      ]
+    },
+    {
+      "case": "c14",
+      "kind": "similar",
+      "evidence": "both refer to A007",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T124",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "`cutBurn`, when mid-burn replanning is needed",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-24",
+            "refs": "A007"
+          },
+          "body": "",
+          "hash": "ba579c08913b6b49"
+        },
+        {
+          "id": "T122",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Long-burn spikes S4 and S6: search cost and bound admissibility",
+          "meta": {
+            "done": "2026-09-29",
+            "dropped": "yes",
+            "refs": "T123, A007"
+          },
+          "body": "Superseded. S4 and S6 rank and bound the old planner's search (`Search.Stepper`); the\nouter layer's menu replaced that search, and T123 retires it.",
+          "hash": "87cf52b27e771f6c"
+        }
+      ]
+    },
+    {
+      "case": "c16",
+      "kind": "similar",
+      "evidence": "titles alike (Q143, T136)",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T136",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Define spacecraft planning through virtual parents",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-27",
+            "refs": "Q143, A076"
+          },
+          "body": "Settles Q143. Until then virtual points stay reference frames and markers, not local\ngravity wells.",
+          "hash": "7350053cbc011838"
+        },
+        {
+          "id": "Q143",
+          "kind": "Q",
+          "file": "questions.md",
+          "title": "What gravity and boundary policy should spacecraft planning use across virtual parents?",
+          "meta": {
+            "asked": "2026-09-27",
+            "area": "kernel",
+            "legacy-id": "Q67"
+          },
+          "body": "Catalogue v1 can describe binary motion with explicit\norbital GM, and the viewer can display it. Neither a virtual barycentre nor\nthat orbital parameter is a body's local gravity well. Define the planner's\neffective gravity, boundary crossings, and approximation limits before\nenabling these routes. The user explicitly deferred this policy in A076.",
+          "hash": "bca2b6e42cf5cf02"
+        }
+      ]
+    },
+    {
+      "case": "c21",
+      "kind": "similar",
+      "evidence": "both refer to A183; both refer to T228",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T230",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Investigate a memo of porkchop cells on an absolute lattice, shared across crafts and later searches",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-10-02",
+            "refs": "A183, T228, LR022, LR011"
+          },
+          "body": "Shaun, 2026-10-02: a porkchop scan sweeps mostly over time, so another search a week later (or by another ship) overlaps\nthe last one. Would a memo of cells hit?\n- **Not today.** `Windows.scanBetween` lays departures from the order's own epoch (`opens`), over a synodic period in\n  steps of synodic/cells, and the flight range from the bodies' elements at `opens`. A later search shifts both off the\n  old cells, so exact inputs almost never repeat.\n- **What to investigate:**\n  - departures on a fixed lattice (multiples of a step from J2000), and each body pair's flight range and step from its\n    mean elements, not the search's start: about 99% of a 780-day Mars synodic period's columns would repeat a week later;\n  - a cache of Lambert cells keyed by (bodies, departure epoch, flight time). These are craft-independent, so one cache\n    serves every ship and every later search; the craft-dependent floor (escape, capture) stays a cheap closed form over\n    the cell's excesses;\n  - where the cache lives (T228's STM cache, or one per catalogue);\n  - eviction (clear at the game's GC point);\n  - the lattice moving the valleys' sampled cells, so windows found can shift by a cell (the tests' numbers move).\n- Measure the scan's share of planning time first (LR012).",
+          "hash": "9944d26f9f21b09c"
+        },
+        {
+          "id": "T228",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Exact memo of the burn integrators: a cache in an STM monad, threaded through the planner",
+          "meta": {
+            "priority": "P2",
+            "added": "2026-10-02",
+            "after": "T227, T215",
+            "done": "2026-10-03",
+            "dropped": "yes",
+            "refs": "A183, Q183, Q177"
+          },
+          "body": "The second of A183's two steps. One map per burn integrator in `stm-containers` (1.2.2 in the pinned nixpkgs): keyed by a\nproduct type of the inputs' exact bits (`castDoubleToWord64`, so that −0 and NaN keep the exact semantics), `Hashable`,\nvalues stored lazily.\n- **Threading.** The cache is created once and threaded through the planner in an STM monad (Reader over STM or IO; no\n  `unsafePerformIO`). Event forms, constraints, gate readings, the residual handed to Newton, and strategies' offers all\n  become monadic, and the lazy per-reading memo in `Values` becomes explicit.\n- **Eviction.** Clear the cache, with a manual GC point the game calls after planning.\n- **Keys.** Build the key outside any atomic update: building one can run further integrations.\n- **Memory.** About 10,000 distinct burns per planning run with boxed samples; after T215, measure peak memory.\n\n*2026-10-02, phase 1 done another way (merge 1011b4d):* no cache. A Jacobian column also shares an event whose declared\ninputs read the same as the base's: the moved variable is not among them, the events it reads are shared, and the ledger\ncarries the same craft. The spiral capture on a falling entry declares its reads. Electric mission solve 2.03 s (3.49 s\nafter T227, 3.83 s before), member identical; six scenarios byte-identical. Left for phase 2, the STM cache: span\ncolumns (the mass really changes), the fall settled twice in one reading (entry and fall), line-search trials, and\nrefinement's repeats across strategies and probes.\n\n*2026-10-02, profiled (T231):* refinement is about 90% of a run, half of it contract probing; the full solve and the flown\nmenu are about 11%. Phase 2 should aim at refinement's probes, after T231's explicit sharing.\n\n*2026-10-03:* The memo was for repeated flights during planning, which R001 moves out of planning. Revisit if repeated integrations show in the full solve's profile.",
+          "hash": "3cd983efcd602416"
+        },
+        {
+          "id": "T227",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Pure Jacobian reuse: a finite-difference column's reading shares the base reading's results for events its variable cannot reach",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-02",
+            "done": "2026-10-02",
+            "refs": "A183, T228, T229, T214, LR006, LR022"
+          },
+          "body": "Merge ec39f3b.\n- **Declaring.** Events declare `reads` (variables, events, and other events' ledger), `Unknown` by default and never\n  shared.\n- **The plan.** `Skeleton.sharingPlan` holds each event's dependency closure: its variables, plus what it reads, plus every\n  burn and shed before it and before each ledger point it reads.\n- **Reading.** `readWith` gives a declared event a restricted reading, so an undeclared read returns nothing. Given a base\n  reading and the perturbed variable, it shares the base's memo and ledger entry, as one, for every event whose closure\n  misses that variable.\n- **Solving.** `Newton.Problem` has `columns`; `Full` reads the Jacobian's columns and the seed's probes through it.\n\nDeclared: the order, the spiral escape, the low-thrust cruise (whose coast is now read only where the blocks meet) and a\nfalling entry. Six scenarios and 208 tests byte-identical; electric mission solve 3.49 s (3.83 s), member identical.\n\nFindings:\n- The closure table must be a lazy map: built strict, it forced closures that refer to each other, and the low-ceiling\n  scenario looped.\n- Most of the electric solve's remaining cost is the fall's two re-settles, downstream of every cruise variable: T228's\n  case.\n- Other legs: T229.",
+          "hash": "d43fd6824933ee7"
+        },
+        {
+          "id": "T229",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Declare the remaining legs' reads so their Jacobian columns share (T227's follow-up)",
+          "meta": {
+            "priority": "P2",
+            "added": "2026-10-02",
+            "done": "2026-10-02",
+            "refs": "LR022, T227, T228"
+          },
+          "body": "- **A coarse declaration.** `Reads` gains `Prior`: the named variables, and any event listed before with its ledger,\n  resolved over the skeleton in `sharingPlan`. `Refine.declaredLeg` gives every leg's undeclared events `Prior` over the\n  leg's own variables.\n- **The one cross-leg read.** The asymptotic entry reads the capture's `rp` and `plane` after it, and names them. With\n  the entry declared, byte-identity found no other.\n\nSix scenarios and 208 tests byte-identical.\n\n| | Before | After |\n| --- | --- | --- |\n| Torch | 1.00 s | 0.96 s |\n| Helium-3 torch parked high | 5.86 s | 5.48 s |\n| Low-ceiling torch | 10.82 s | 10.58 s |\n| Test suite | 27.5 s | 22.9 s |\n\nThe scenarios gain little: their full solves are a small share of a run beside refinement, the probes and the cheap tier.\nMeasure where the time goes before T228 phase 2.",
+          "hash": "f2a393f972f5a01"
+        }
+      ]
+    },
+    {
+      "case": "c27",
+      "kind": "similar",
+      "evidence": "both refer to T263",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T262",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Plan: the course correction after the 5b review",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-07",
+            "after": "T256, T257, T258, T259, T260, T261",
+            "refs": "T255, T263"
+          },
+          "body": "The course correction from the 5b review (`docs/plans/rebuild/review-through-step-5b.md`), after the visualiser's design discussion (T263), before the revision loop (T255). Order: seeds by rule (T256), the lap keep and R016's sets (T257), timing (T260); with the ledger (T258), the rule texts (T259) and the test health (T261) alongside. Done when the example and tests carry no hand-made seeds, the forms agree off the seed, and the crossing's time is recorded. Risks carried to T255: continuation in ε for join stalls, a structured reason for holds, and finite burns' cost at dual type; realised paths start from `oneConic` moved into lib.",
+          "hash": "72ebe4212ead7f82"
+        },
+        {
+          "id": "T267",
+          "kind": "T",
+          "file": "done.md",
+          "title": "The railroad's focus view, for discussions: --focus, --crop, PNG",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-07",
+            "done": "2026-10-07",
+            "refs": "T263"
+          },
+          "body": "Shaun wants diagrams in our discussions, with the area under discussion picked out, to see and remember which part we are on. `--focus` dims what is not selected (legs, badge ids, variables); `--crop` crops to it; a PNG for chat. Fable is building it.\n\n**Outcome:** `render.mjs --focus <legs, badge ids, leg.symbol> --crop [--png out.png --scale 2]` (Fable; the symbols line fixed to explain only selected variables). Shown to Shaun through the \"Iapetus Focus\" artifact, republished per topic: chat cannot take files in these sessions.",
+          "hash": "34615d496d34c219"
+        }
+      ]
+    },
+    {
+      "case": "c29",
+      "kind": "similar",
+      "evidence": "titles alike (K005, T238)",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T238",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Step 2b: the arrival hyperbola",
+          "meta": {
+            "priority": "P1",
+            "added": "2026-10-04",
+            "after": "T239",
+            "done": "2026-10-05",
+            "refs": "R004, R006, R013, K005"
+          },
+          "body": "The closed forms a capture is read from, in canonical units and generic for `ad`: the hyperbola from its excess and\naim, the state at a radius, the fall time, the capture kick. Tested against the kernel. Split from the capture leg\n(2c) on 2026-10-05. Design note: `docs/plans/rebuild/step-2b-hyperbola.md`, reviewed by Shaun 2026-10-05 (formulas brought across; seed-centred angles; the aim's axis the further of the pole and an equatorial axis).\n\n`Iapetus.Hyperbola` and its twelve tests (40 new-code tests, the whole suite 248). Built in vectors from the asymptote;\n`stateAt` takes 1 − cos ν directly, since √(1 − cos²) lost half the digits at periapsis (caught by the periapsis law).\nThe kernel's capture burn and fall time are brought across and serve as oracles through the unit boundary; the fall time\nis also checked by the kernel's Kepler propagation reaching periapsis, and the kick by the energy after it. A\ndeliberate fault in p̂ fails the asymptote law.",
+          "hash": "4d8556c1dd1dbef2"
+        },
+        {
+          "id": "K005",
+          "kind": "K",
+          "file": "resources.md",
+          "title": "B-plane reference axes, and directions as variables",
+          "meta": {
+            "link": "docs/plans/rebuild/step-2b-hyperbola.md",
+            "consult-when": "choosing the B-plane's reference axis or an aim's zero, an arrival or departure near a body's pole, a direction (asymptote, thrust aim) as solve variables, or a solve that moves far from its seed",
+            "added": "2026-10-05",
+            "refs": "T238, Q187"
+          },
+          "body": "A short literature check (2026-10-05) behind step 2b's \"Angles and axes\", with the sources listed there: JPL's 2019\nB-plane poster (Bradley), AGI's and STK's B-plane documentation, FreeFlyer's guide, a tangent-plane retraction for\nunit vectors (arXiv 2504.08252), and Ceres's and GTSAM's manifold parameterisations.\n\n**Takeaways:**\n- **The B-plane is conventionally aligned with the body's pole,** and tools let a caller give another reference\n  frame instead. It is singular where the asymptote lies along the reference axis.\n- **The B-plane is known to be used inconsistently;** JPL developed alternative frames for its navigation software\n  (2019). The poster gives no detail of them.\n- **A unit vector as a variable:** two numbers in the tangent plane, mapped back by a retraction. Ceres and GTSAM\n  re-centre that chart at every step. A chart fixed at the seed keeps variables' meaning fixed through a solve, which\n  holds and R002 need; re-centring is the next step if a solve must move far.\n- **For any body:** angles in a frame centred on the seed, and the aim's axis whichever of the pole and an equatorial\n  axis lies further from the seed asymptote (never within 45°, no tuned threshold).",
+          "hash": "1ee4044d1c2c75e6"
+        }
+      ]
+    },
+    {
+      "case": "c36",
+      "kind": "similar",
+      "evidence": "both refer to Q114; titles alike (Q114, T146); titles alike (A010, T146); titles alike (A010, Q114); titles alike (A134, Q114); titles alike (A134, T146)",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T146",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Off-plane crossings near a half-turn",
+          "meta": {
+            "done": "2026-09-29",
+            "dropped": "yes",
+            "refs": "Q114"
+          },
+          "body": "The task only restated Q114, which stands for itself.",
+          "hash": "e4fc702697025982"
+        },
+        {
+          "id": "A134",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Merged into Q114",
+          "meta": {
+            "answered": "2026-09-29",
+            "dropped": "yes",
+            "legacy-question": "Q41",
+            "refs": "Q114"
+          },
+          "body": "**Question** *How wide may an arrival window be* _(Merged into Q114, which carries its text.)_\n\n**Answer** Not answered here: see Q114.",
+          "hash": "4fe1f7b1333e2e0"
+        },
+        {
+          "id": "Q114",
+          "kind": "Q",
+          "file": "questions.md",
+          "title": "Crossings near a half-turn: off-plane targets and the arrival window's width",
+          "meta": {
+            "asked": "2026-09-24",
+            "area": "kernel",
+            "legacy-id": "Q11"
+          },
+          "body": "**Q114** (Q11): *Crossings near a half turn to an off-plane target* The doctrine\nsays do not fly them; the fix is open. Owner:\n[`Half-Turn Transfers`](../wiki/reference/Half-Turn%20Transfers.md).\n\n**Merged from Q134** (Q41, asked 2026-09-25): *How wide may an arrival window be* before a crossing loses its\nconditioning near the half-turn? Is the scan's cell the right width?\n*(2026-09-25)* Owner: chapter 12; `wiki/reference/Half-Turn Transfers.md`.",
+          "hash": "87e98eb42f187be7"
+        },
+        {
+          "id": "A010",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Near a half-turn, hold the ship's plane; never scan for the cheapest crossing cell",
+          "meta": {
+            "answered": "2026-09-13",
+            "area": "kernel"
+          },
+          "body": "**Question** _(None asked: a design argument settled without a parked question.)_\n\n**Answer** **Near a half-turn, hold the ship's plane when the target is in it, and never scan for the cheapest crossing cell to an off-plane target.** The cheapest cell is the trap. Source: Half-Turn Transfers.",
+          "hash": "fc9a3fe830dfe83"
+        }
+      ]
+    },
+    {
+      "case": "c39",
+      "kind": "similar",
+      "evidence": "shared tag viewer; both refer to T100; titles alike (A156, T081); titles alike (A101, A103); titles alike (A156, T135); titles alike (A102, A103)",
+      "allowed": [
+        "cluster",
+        "link",
+        "retag",
+        "flag",
+        "archive"
+      ],
+      "entries": [
+        {
+          "id": "T082",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Several menu entries in one trace, switchable in the viewer",
+          "meta": {
+            "done": "2026-09-27"
+          },
+          "body": "- Trace v2 gains an optional top-level `flights` array, backward\n  compatibly: each element carries what a single document carries per\n  flight (`title`, the route's menu `labels`, `tags`, `measures` in SI,\n  `summary`, `path`), the first flight stays at the top level exactly as\n  before, and `catalog` and `rendering` stay once. `Trace.Document` holds\n  a `Flight` record and `documentValue`/`writeFlights` over a non-empty\n  list; `traceValue` for one flight renders byte for byte what it did, and\n  the array is written only for two or more flights, so the committed\n  Earth-to-Mars trace regenerates unchanged. Documented in\n  `docs/archive/catalog-loading.md`.\n- `iapetus-trace --export shown|front|all` solves from the seeds, lowers\n  and flies every entry of the set through the same pipeline as the pick,\n  writes them into one document with the pick first, prints one\n  lowering/flight block per entry in menu order and how many were written;\n  an entry whose full solve cannot start or whose lowering fails is\n  reported and left out. The torch's shown set (the cheap window and the\n  direct brachistochrone) exports in 12 s; the nuclear-thermal stage's\n  whole priced menu, four routes, in 9 s.\n- The viewer shows a flight selector in the panel when a document carries\n  several flights, labelled by the tags and the menu's measures\n  (\"cheapest · 617.0 d · 6.9 t\"). Switching makes the chosen flight the\n  trace (`Trace.selectFlight`), rebuilds the drawn path on a fresh scene,\n  the flight list and the validator verdict, re-runs the conformance and\n  energy checks, and resets the clock to the flight's start, the focus to\n  its first arc's body, play stopped and the camera where the page opens.\n  `scene.js` is untouched. `window.iapetus.trace` is the current flight;\n  `window.iapetus.flights` gives the count and index.\n- Tests: the byte identity and a two-flight round trip through\n  `Trace.Json` in `test/Main.hs` (209 pass); a Playwright spec,\n  `test/web-browser/flights.spec.js`, over a document served from\n  `IAPETUS_FLIGHTS_URL` that checks the selector lists two, that switching\n  changes the arc count and resets the clock, focus and camera, and that\n  the conformance check passes for both; the existing trace spec passes\n  against the two-flight document too.",
+          "hash": "97c676283f4d4d32"
+        },
+        {
+          "id": "T135",
+          "kind": "T",
+          "file": "todo.md",
+          "title": "Viewer camera: the rest of the survey",
+          "meta": {
+            "priority": "P3",
+            "added": "2026-09-27"
+          },
+          "body": "From `docs/archive/viewer-camera-notes.md`: double-click a body to focus it, zoom to the cursor,\nand drop the now unused vendored `OrbitControls.js` from `iapetus.cabal`'s data-files.",
+          "hash": "9afdc3a112a5a041"
+        },
+        {
+          "id": "T081",
+          "kind": "T",
+          "file": "done.md",
+          "title": "The viewer's camera as a turntable with north up",
+          "meta": {
+            "done": "2026-09-27"
+          },
+          "body": "- The viewer's `OrbitControls` orbited about the camera's default `+y`,\n  a direction in the ecliptic, and let the elevation reach within a\n  microradian of its pole, where a fixed-up camera's horizontal basis\n  collapses and a pixel of drag spins the view. Replaced by a hand-written\n  `Turntable` in `static/scene.js`: azimuth about the catalogue's `+z`,\n  elevation clamped to ±89°, log-distance; the focus is always the scene's\n  origin, so there is no pan. Drag is a constant 0.005 rad/px, the wheel\n  dollies by ×1.25 per notch toward the focus, one finger orbits and two\n  pinch through pointer events. Every change of goal is eased with one\n  0.12 s time constant, which gives the drag its inertia and makes a change\n  of focus a smooth zoom that keeps the view's direction.\n- The survey behind the choice — Blender's turntable and trackball, Three's\n  Orbit, Trackball and Arcball controls, Celestia, Universe Sandbox,\n  SpaceEngine and KSP — is `docs/archive/viewer-camera-notes.md`.\n- `test/web-browser/camera.spec.js`: a drag far past either pole stops at\n  the clamp with a finite quaternion, a level horizon and the same\n  radians-per-pixel azimuth response; the wheel shortens the distance\n  monotonically by the notch factor down to the floor without turning;\n  changing focus to the root, the last frame and the ship keeps azimuth,\n  elevation and direction.",
+          "hash": "6c08915253dc6454"
+        },
+        {
+          "id": "T132",
+          "kind": "T",
+          "file": "done.md",
+          "title": "Viewer step 6: publish a static copy",
+          "meta": {
+            "done": "2026-09-29",
+            "dropped": "yes",
+            "refs": "T100"
+          },
+          "body": "Not wanted: the viewer served by `iapetus-web` lets the user pick a trace, which a\nstatic copy could not. The README's viewer section, the step's other half, was done.",
+          "hash": "ac53dc0a396946e6"
+        },
+        {
+          "id": "A101",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Folded into T100: the viewer as separate, switchable views",
+          "meta": {
+            "answered": "2026-09-29",
+            "dropped": "yes",
+            "area": "viewer",
+            "refs": "T100"
+          },
+          "body": "**Question** _(Folded into T100: the viewer will change, so this records what was built, not a lasting decision.)_\n\n**Answer** Not a standing decision: see T100.",
+          "hash": "d60b8f5d15ce3b03"
+        },
+        {
+          "id": "A102",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Folded into T100: the views built in the real viewer, replacing the classic panel and timeline",
+          "meta": {
+            "answered": "2026-09-29",
+            "dropped": "yes",
+            "area": "viewer",
+            "legacy-question": "Q83",
+            "refs": "T100"
+          },
+          "body": "**Question** **Q83.** _(Folded into T100: the viewer will change, so this records what was built, not a lasting decision.)_\n\n**Answer** Not a standing decision: see T100.",
+          "hash": "d3112ad8641592c5"
+        },
+        {
+          "id": "A103",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Folded into T100: the URL names the view",
+          "meta": {
+            "answered": "2026-09-29",
+            "dropped": "yes",
+            "area": "viewer",
+            "legacy-question": "Q84",
+            "refs": "T100"
+          },
+          "body": "**Question** **Q84.** _(Folded into T100: the viewer will change, so this records what was built, not a lasting decision.)_\n\n**Answer** Not a standing decision: see T100.",
+          "hash": "f57565c7fd378f83"
+        },
+        {
+          "id": "A104",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Folded into T100: every flight in the document drawn once",
+          "meta": {
+            "answered": "2026-09-29",
+            "dropped": "yes",
+            "area": "viewer",
+            "legacy-question": "Q85",
+            "refs": "T100"
+          },
+          "body": "**Question** **Q85.** _(Folded into T100: the viewer will change, so this records what was built, not a lasting decision.)_\n\n**Answer** Not a standing decision: see T100.",
+          "hash": "627faae6e4271c5"
+        },
+        {
+          "id": "A105",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "Folded into T100: local mode fades other frames' arcs",
+          "meta": {
+            "answered": "2026-09-29",
+            "dropped": "yes",
+            "area": "viewer",
+            "legacy-question": "Q86",
+            "refs": "T100"
+          },
+          "body": "**Question** **Q86.** _(Folded into T100: the viewer will change, so this records what was built, not a lasting decision.)_\n\n**Answer** Not a standing decision: see T100.",
+          "hash": "40328ca8745193c8"
+        },
+        {
+          "id": "A156",
+          "kind": "A",
+          "file": "answers.md",
+          "title": "The viewer's camera is a turntable with north up",
+          "meta": {
+            "answered": "2026-09-27",
+            "area": "viewer",
+            "revisit-if": "the viewer needs pan, or a free-flying camera",
+            "refs": "T081"
+          },
+          "body": "**Question** _(None asked: settled while building T081.)_ The viewer's `OrbitControls`\norbited about a direction in the ecliptic and let the elevation reach within a\nmicroradian of its pole, where a pixel of drag spins the view.\n\n**Answer** A hand-written `Turntable` in `static/scene.js`: azimuth about the\ncatalogue's `+z`, elevation clamped to ±89°, log-distance, the focus always the scene's\norigin (no pan), drag at 0.005 rad/px, the wheel dollying ×1.25 per notch, every change\nof goal eased with one 0.12 s time constant.\n\n**Why** A fixed-up camera's horizontal basis collapses at the pole; a turntable with a\nclamp never reaches it, and keeps the system's north up.\n\n**Alternatives considered** From the survey in `docs/archive/viewer-camera-notes.md`: Blender's\nturntable and trackball, Three's Orbit, Trackball and Arcball controls, Celestia,\nUniverse Sandbox, SpaceEngine and KSP.",
+          "hash": "7b6200e806efeee7"
+        }
+      ]
+    }
+  ]
+}

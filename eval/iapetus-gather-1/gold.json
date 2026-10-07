@@ -1,0 +1,111 @@
+{
+  "mode": "gather",
+  "packet": "90bfec337ca227c9",
+  "made": "2026-10-07",
+  "by": "claude (agent draft, to be corrected by Shaun)",
+  "actions": [
+    {
+      "action": "cluster",
+      "case": "c11",
+      "label": "mass from the ledger",
+      "members": [
+        "T186",
+        "T187",
+        "T188",
+        "T225"
+      ],
+      "why": "each is about a leg flown at the mass the earlier burns left, read from the ledger"
+    },
+    {
+      "action": "archive",
+      "id": "T122",
+      "if": "87cf52b27e771f6c",
+      "importance": "low",
+      "why": "dropped: its search was replaced, and nothing open depends on it"
+    },
+    {
+      "action": "cluster",
+      "case": "c21",
+      "label": "jacobian and integrator reuse",
+      "members": [
+        "T227",
+        "T228",
+        "T229",
+        "T230"
+      ],
+      "why": "all four reuse earlier evaluations (memo, shared columns) under A183"
+    },
+    {
+      "action": "cluster",
+      "case": "c36",
+      "label": "half-turn crossings",
+      "members": [
+        "A010",
+        "A134",
+        "Q114",
+        "T146"
+      ],
+      "why": "the half-turn doctrine, its open question and the entries merged into it"
+    },
+    {
+      "action": "archive",
+      "id": "T146",
+      "if": "e4fc702697025982",
+      "importance": "low",
+      "why": "dropped because it only restated Q114"
+    },
+    {
+      "action": "cluster",
+      "case": "c39",
+      "label": "viewer camera",
+      "members": [
+        "A156",
+        "T081",
+        "T135"
+      ],
+      "why": "the turntable camera, its decision, and the rest of the camera survey"
+    },
+    {
+      "action": "archive",
+      "id": "A101",
+      "if": "d60b8f5d15ce3b03",
+      "importance": "low",
+      "why": "folded into T100: says itself it records no lasting decision"
+    },
+    {
+      "action": "archive",
+      "id": "A102",
+      "if": "d3112ad8641592c5",
+      "importance": "low",
+      "why": "folded into T100: says itself it records no lasting decision"
+    },
+    {
+      "action": "archive",
+      "id": "A103",
+      "if": "f57565c7fd378f83",
+      "importance": "low",
+      "why": "folded into T100: says itself it records no lasting decision"
+    },
+    {
+      "action": "archive",
+      "id": "A104",
+      "if": "627faae6e4271c5",
+      "importance": "low",
+      "why": "folded into T100: says itself it records no lasting decision"
+    },
+    {
+      "action": "archive",
+      "id": "A105",
+      "if": "40328ca8745193c8",
+      "importance": "low",
+      "why": "folded into T100: says itself it records no lasting decision"
+    },
+    {
+      "action": "archive",
+      "id": "T132",
+      "if": "ac53dc0a396946e6",
+      "importance": "low",
+      "why": "dropped as not wanted; nothing depends on it"
+    }
+  ]
+}
