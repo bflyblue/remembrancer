@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync, rmSync, statSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { DIR, FILES } from "./project";
+import { join, relative } from "node:path";
+import type { Problem } from "./analyse";
+import { DIR, FILES, LOCK, LOCK_STALE_MS, loadProject, visibility } from "./project";
 import answers from "../skill/templates/answers.md" with { type: "text" };
 import done from "../skill/templates/done.md" with { type: "text" };
 import questions from "../skill/templates/questions.md" with { type: "text" };
@@ -40,7 +41,81 @@ async function gitDir(root: string): Promise<string | null> {
   return out || null;
 }
 
-async function ensureLine(path: string, line: string): Promise<boolean> {
+// The tool's own files, never to be committed: each ignore line (relative to
+// the project root) and paths it must cover. The paths go through
+// `git check-ignore`, so any pattern the user wrote instead counts too.
+// Temporary files appear in archive/ as well, hence `**/`.
+export const IGNORED: { line: string; what: string; probes: string[] }[] = [
+  { line: `/${DIR}/${LOCK}`, what: "the write lock", probes: [`${DIR}/${LOCK}`] },
+  { line: `/${DIR}/**/*.tmp-*`, what: "half-written files", probes: [`${DIR}/todo.md.tmp-1`, `${DIR}/archive/done-2026.md.tmp-1`] },
+  { line: `/${DIR}/.index.db`, what: "a search index", probes: [`${DIR}/.index.db`] },
+  { line: `/${DIR}/log/`, what: "the curation log", probes: [`${DIR}/log/x`] },
+  { line: `/${DIR}/proposals/`, what: "queued proposals", probes: [`${DIR}/proposals/x`] },
+];
+
+// The project root's path below the git work tree, as an ignore-line prefix
+// ("" at the top): .git/info/exclude is read relative to the top.
+function gitPrefix(root: string): string {
+  const top = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: root, stderr: "ignore" });
+  const rel = top.exitCode === 0 ? relative(realpathSync(top.stdout.toString().trim()), realpathSync(root)) : "";
+  return rel ? "/" + rel.split("\\").join("/") : "";
+}
+
+function isIgnored(root: string, path: string): boolean {
+  return Bun.spawnSync(["git", "check-ignore", "-q", path], { cwd: root, stderr: "ignore" }).exitCode === 0;
+}
+
+export interface DoctorReport {
+  problems: Problem[]; // what is still wrong
+  fixed: string[]; // what --fix changed
+}
+
+// Checks of the folder's health that lint does not make: tool files a
+// committed folder would publish, a lock left by a crash, duplicate IDs.
+// With `fix`, ignore lines go into .gitignore (committed) or
+// .git/info/exclude (private), and a stale lock is removed.
+export async function doctor(root: string, { fix = false } = {}): Promise<DoctorReport> {
+  const problems: Problem[] = [];
+  const fixed: string[] = [];
+  const vis = visibility(root);
+  if (vis === "committed") {
+    const target = join(root, ".gitignore");
+    for (const { line, what, probes } of IGNORED) {
+      if (probes.every((p) => isIgnored(root, p))) continue;
+      if (fix) {
+        if (await ensureLine(target, line)) fixed.push(`added ${line} to .gitignore`);
+      } else {
+        problems.push({ file: ".gitignore", id: null, message: `${DIR}/ is committed but does not ignore ${what}: add "${line}"` });
+      }
+    }
+  } else if (vis === "private" && fix) {
+    const git = await gitDir(root);
+    const exclude = git ? join(git, "info", "exclude") : null;
+    const prefix = gitPrefix(root);
+    for (const line of IGNORED.map(({ line }) => prefix + line)) {
+      if (exclude && (await ensureLine(exclude, line))) fixed.push(`added ${line} to ${exclude}`);
+    }
+  }
+
+  const lock = join(root, DIR, LOCK);
+  const age = Date.now() - (statSync(lock, { throwIfNoEntry: false })?.mtimeMs ?? Date.now());
+  if (age > LOCK_STALE_MS) {
+    const secs = Math.round(age / 1000);
+    if (fix) {
+      rmSync(lock, { force: true });
+      fixed.push(`removed a stale ${DIR}/${LOCK} (${secs}s old)`);
+    } else {
+      problems.push({ file: LOCK, id: null, message: `stale lock, ${secs}s old: left by a crash (doctor --fix removes it)` });
+    }
+  }
+
+  for (const [id, list] of (await loadProject(root)).byId) {
+    if (list.length > 1) problems.push({ file: list[0].file, id, message: `duplicate id ${id} in ${list.map((e) => e.file).join(", ")}: renumber one by hand` });
+  }
+  return { problems, fixed };
+}
+
+export async function ensureLine(path: string, line: string): Promise<boolean> {
   const f = Bun.file(path);
   const text = (await f.exists()) ? await f.text() : "";
   if (text.split("\n").some((l) => l.trim() === line)) return false;
@@ -65,6 +140,11 @@ export async function init(root: string, opts: { local?: boolean } = {}): Promis
     const exclude = join(git, "info", "exclude");
     if (await ensureLine(exclude, `/${DIR}/`)) log.push(`added /${DIR}/ to ${exclude}`);
     if (opts.local && (await ensureLine(exclude, "/CLAUDE.local.md"))) log.push(`added /CLAUDE.local.md to ${exclude}`);
+    // Redundant while the folder is excluded, but in place if it is ever committed.
+    const prefix = gitPrefix(root);
+    let added = 0;
+    for (const line of IGNORED.map(({ line }) => prefix + line)) if (await ensureLine(exclude, line)) added++;
+    if (added) log.push(`added ${added} ignore line${added === 1 ? "" : "s"} for the tool's own files to ${exclude}`);
   } else {
     log.push(`not a git repository: ${DIR}/ is not excluded from anything`);
   }

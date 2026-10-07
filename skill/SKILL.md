@@ -43,6 +43,10 @@ Run `remembrancer next T --claim "title"` (or `Q`, `R`, `K`, or `A` for a decisi
 
 **IDs outside `.remembrancer/`.** The brief's second line says whether git ignores the folder. If it does (the default after `init`, used on shared repos), nobody reading the history can resolve an ID, so never write T/Q/A/R/K IDs in commit messages, PR descriptions, code, comments, docs or any other file outside `.remembrancer/`. Say what the ID stands for in words ("keep cursors stable under ties", not "R003"). Report rule IDs to the user in chat as usual. If the folder is committed, cite IDs in commits and PRs where they help. Without the brief, run `git check-ignore -q .remembrancer` (exit 0 means ignored). The commit guard hook (`remembrancer guard`) refuses a commit, tag or PR command that breaks this and names the IDs: rewrite them in words and retry, never work around it.
 
+## Reading entries
+
+Read an entry with `remembrancer show ID…`, never grep: it prints the whole entry and its hash, and `--links` adds what it links to, what links to it, and `current:`, where a chain of `superseded-by` leads. Follow `current:` before acting on an old answer or rule. `--json` gives the same as data.
+
 ## When to act
 
 **Session start.** Run `remembrancer brief` (or read todo, questions, rules and the `consult-when` lines of resources). Tell the user in two or three lines what is next and anything that needs attention. If `scratch.md` holds an old session, move anything durable into todo, questions, answers or rules, then reset scratch to its header and a `# Session YYYY-MM-DD` heading.

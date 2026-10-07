@@ -1,19 +1,7 @@
 import { closeSync, existsSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import {
-  type Entry,
-  type Kind,
-  type ParsedFile,
-  mentions,
-  padId,
-  parseFile,
-  prependEntry,
-  removeEntry,
-  spliceEntry,
-  today,
-  withMeta,
-} from "./model";
+import { type Entry, type Kind, type ParsedFile, mentions, padId, parseFile, today } from "./model";
 
 export const DIR = ".remembrancer";
 export const FILES = ["todo.md", "done.md", "questions.md", "answers.md", "rules.md", "resources.md", "scratch.md"] as const;
@@ -120,17 +108,21 @@ export async function claimId(root: string, kind: Kind, title: string): Promise<
 
 // An exclusive lock for writes from the CLI and the UI. Agents editing the
 // files directly don't take it; lint's duplicate-id check is the backstop.
-async function withLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
-  const path = join(root, DIR, ".lock");
+// Hold it only across read, check and write: never across a subprocess, since
+// a lock older than LOCK_STALE_MS is taken to be left behind by a crash.
+export const LOCK = ".lock";
+export const LOCK_STALE_MS = 10_000;
+
+export async function withLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  const path = join(root, DIR, LOCK);
   for (let tries = 0; ; tries++) {
     try {
       closeSync(openSync(path, "wx"));
       break;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      // A lock this old was left behind by a crash.
-      if (Date.now() - (statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) > 10_000) rmSync(path, { force: true });
-      else if (tries > 100) throw new Error(`${DIR}/.lock is held; remove it if no remembrancer command is running`);
+      if (Date.now() - (statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? Date.now()) > LOCK_STALE_MS) rmSync(path, { force: true });
+      else if (tries > 100) throw new Error(`${DIR}/${LOCK} is held; remove it if no remembrancer command is running`);
       else await Bun.sleep(50);
     }
   }
@@ -142,8 +134,8 @@ async function withLock<T>(root: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export class ConflictError extends Error {
-  constructor(public file: string) {
-    super(`${file} changed on disk since it was loaded`);
+  constructor(public file: string, message = `${file} changed on disk since it was loaded`) {
+    super(message);
   }
 }
 
@@ -151,91 +143,40 @@ export class NotFoundError extends Error {}
 
 export class RefusedError extends Error {}
 
-async function writeAtomic(path: string, text: string) {
+export async function writeAtomic(path: string, text: string) {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
   await Bun.write(tmp, text);
   await rename(tmp, path);
 }
 
-async function checkedEntry(root: string, rel: string, hash: string, index: number, id: string | null) {
-  if (!isValidFile(rel)) throw new NotFoundError(`unknown file ${rel}`);
-  const file = await readParsed(root, rel);
-  if (file.hash !== hash) throw new ConflictError(rel);
-  const entry = file.entries[index];
-  if (!entry || entry.id !== id) throw new NotFoundError(`entry ${id} not found in ${rel}`);
-  return { file, entry };
-}
-
+// Where a caller last saw an entry. With `entry` (the entry's own hash, as
+// `show` prints it), the entry is found by its ID and only it must be
+// unchanged, so edits elsewhere in the file don't invalidate the ref. Without
+// it, the whole file must be unchanged (`hash`) and the entry is at `index`.
 export interface EntryRef {
   file: string;
   hash: string;
   index: number;
   id: string | null;
+  entry?: string;
 }
 
-// Every write below holds the lock from its hash check to its last write, so
-// the check can't pass against a file another writer is about to change.
-export async function replaceEntry(root: string, ref: EntryRef, raw: string) {
-  await withLock(root, async () => {
-    const { file } = await checkedEntry(root, ref.file, ref.hash, ref.index, ref.id);
-    await writeAtomic(join(root, DIR, ref.file), spliceEntry(file, ref.index, raw));
-  });
+// Call under the lock. Returns the entry as it is now: by-ID refs may find it
+// at another index, so callers splice at `entry.index`, never `ref.index`.
+export async function checkedEntry(root: string, ref: EntryRef): Promise<{ file: ParsedFile; entry: Entry }> {
+  if (!isValidFile(ref.file)) throw new NotFoundError(`unknown file ${ref.file}`);
+  const file = await readParsed(root, ref.file);
+  if (ref.entry !== undefined) {
+    const found = ref.id ? file.entries.filter((e) => e.id === ref.id) : [file.entries[ref.index]].filter(Boolean);
+    if (found.length > 1) throw new RefusedError(`${ref.id} appears ${found.length} times in ${ref.file}: run lint`);
+    const entry = found[0];
+    if (!entry || entry.id !== ref.id) throw new NotFoundError(`entry ${ref.id} not found in ${ref.file}`);
+    if (entry.hash !== ref.entry) throw new ConflictError(ref.file, `${ref.id ?? "the entry"} in ${ref.file} changed since it was read`);
+    return { file, entry };
+  }
+  if (file.hash !== ref.hash) throw new ConflictError(ref.file);
+  const entry = file.entries[ref.index];
+  if (!entry || entry.id !== ref.id) throw new NotFoundError(`entry ${ref.id} not found in ${ref.file}`);
+  return { file, entry };
 }
-
-// Only an entry without an ID (a malformed heading) can be deleted. Deleting
-// one with an ID would free its number: drop a todo, answer a question (with
-// a stub answer if it was abandoned) or retire a rule instead.
-export async function deleteEntry(root: string, ref: EntryRef) {
-  await withLock(root, async () => {
-    const { file, entry } = await checkedEntry(root, ref.file, ref.hash, ref.index, ref.id);
-    if (entry.id) throw new RefusedError(`${entry.id} has an ID, so it is never deleted: drop, answer or retire it instead`);
-    await writeAtomic(join(root, DIR, ref.file), removeEntry(file, ref.index));
-  });
-}
-
-export async function setMeta(root: string, ref: EntryRef, updates: Record<string, string>) {
-  await withLock(root, async () => {
-    const { file, entry } = await checkedEntry(root, ref.file, ref.hash, ref.index, ref.id);
-    await writeAtomic(join(root, DIR, ref.file), spliceEntry(file, ref.index, withMeta(entry, updates)));
-  });
-}
-
-// Move an entry to the top of another file. The target is written first, so
-// a crash in between leaves a duplicate (which lint reports), never a loss.
-async function moveEntry(root: string, ref: EntryRef, target: (e: Entry) => string, header: string, updates = {}) {
-  return withLock(root, async () => {
-    const { file, entry } = await checkedEntry(root, ref.file, ref.hash, ref.index, ref.id);
-    const to = target(entry);
-    const existing = await readParsed(root, to);
-    const raw = Object.keys(updates).length ? withMeta(entry, updates) : entry.raw;
-    await writeAtomic(join(root, DIR, to), prependEntry(existing.text || header, raw));
-    await writeAtomic(join(root, DIR, ref.file), removeEntry(file, ref.index));
-    return to;
-  });
-}
-
-// Move a done entry into archive/done-YYYY.md (year of its `done:` date).
-export async function archiveEntry(root: string, ref: EntryRef) {
-  if (ref.file.startsWith("archive/")) throw new NotFoundError(`${ref.id} is already archived`);
-  const stem = ref.file.replace(/\.md$/, "");
-  const year = (e: Entry) => (e.meta.done ?? e.meta.answered ?? today()).slice(0, 4);
-  return moveEntry(root, ref, (e) => `archive/${stem}-${year(e)}.md`, `# Archive: ${stem}\n`);
-}
-
-// Move a todo to the top of done.md, stamping today's date. A dropped todo
-// goes the same way, marked `dropped: yes`, so its number stays taken.
-export async function completeEntry(root: string, ref: EntryRef, { dropped = false } = {}) {
-  if (ref.file !== "todo.md") throw new NotFoundError(`${ref.id} is not an open todo`);
-  return moveEntry(root, ref, () => "done.md", "# Done\n", { done: today(), ...(dropped ? { dropped: "yes" } : {}) });
-}
-
-export async function replaceFile(root: string, rel: string, hash: string, text: string) {
-  if (!isValidFile(rel)) throw new NotFoundError(`unknown file ${rel}`);
-  await withLock(root, async () => {
-    const file = await readParsed(root, rel);
-    if (file.hash !== hash) throw new ConflictError(rel);
-    await writeAtomic(join(root, DIR, rel), text);
-  });
-}
-

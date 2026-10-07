@@ -5,20 +5,8 @@ import { join } from "node:path";
 import { lint } from "../src/analyse";
 import { brief } from "../src/brief";
 import { init } from "../src/init";
-import {
-  ConflictError,
-  DIR,
-  RefusedError,
-  archiveEntry,
-  claimId,
-  completeEntry,
-  deleteEntry,
-  loadProject,
-  nextId,
-  readParsed,
-  replaceEntry,
-  visibility,
-} from "../src/project";
+import { archiveEntry, completeEntry, deleteEntry, replaceEntry } from "../src/commands";
+import { ConflictError, DIR, RefusedError, claimId, loadProject, nextId, readParsed, visibility } from "../src/project";
 
 let root: string;
 

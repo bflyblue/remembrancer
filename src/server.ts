@@ -3,21 +3,8 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import { THRESHOLDS, attention, lint, openTodos } from "./analyse";
 import { linksIn, renderMarkdown, servedRoot } from "./links";
-import {
-  ConflictError,
-  DIR,
-  type EntryRef,
-  NotFoundError,
-  RefusedError,
-  archiveEntry,
-  completeEntry,
-  deleteEntry,
-  listFiles,
-  loadProject,
-  replaceEntry,
-  replaceFile,
-  setMeta,
-} from "./project";
+import { LintRefusedError, archiveEntry, completeEntry, deleteEntry, replaceEntry, replaceFile, setMeta } from "./commands";
+import { ConflictError, DIR, type EntryRef, NotFoundError, RefusedError, listFiles, loadProject } from "./project";
 import appJs from "./ui/app.js" with { type: "text" };
 import indexHtml from "./ui/index.html" with { type: "text" };
 import styleCss from "./ui/style.css" with { type: "text" };
@@ -232,6 +219,7 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
         } catch (err) {
           if (err instanceof ConflictError) return json({ error: err.message, conflict: true }, 409);
           if (err instanceof NotFoundError) return json({ error: err.message }, 404);
+          if (err instanceof LintRefusedError) return json({ error: err.message, problems: err.problems }, 422);
           if (err instanceof RefusedError) return json({ error: err.message }, 422);
           throw err;
         }

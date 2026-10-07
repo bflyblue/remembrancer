@@ -5,9 +5,10 @@ import { homedir, hostname } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { brief } from "./brief";
 import { guard } from "./guard";
-import { init } from "./init";
+import { LintRefusedError, formatShown, show } from "./commands";
+import { doctor, init } from "./init";
 import { lint } from "./analyse";
-import { DIR, claimId, findRoot, loadProject, nextId, visibility } from "./project";
+import { ConflictError, DIR, NotFoundError, RefusedError, claimId, findRoot, loadProject, nextId, visibility } from "./project";
 import { qrTerminal } from "./qr";
 import { isLoopback, serve } from "./server";
 import type { Kind } from "./model";
@@ -24,7 +25,16 @@ usage:
   remembrancer brief [--hook]        session-start summary, including whether git ignores ${DIR}/
                                      (and so whether IDs may appear in commits). --hook: print
                                      nothing if there is no ${DIR}/
-  remembrancer lint [--ids] [--hook] check the files for broken IDs, fields and links
+  remembrancer show ID... [--links] [--json]
+                                     print whole entries, each with its hash (the entry's version).
+                                     --links: what each links to, what links to it, and where a
+                                     chain of superseded-by leads (current:)
+  remembrancer doctor [--fix] [--json]
+                                     report tool files a committed ${DIR}/ would publish, a stale
+                                     lock, duplicate IDs. --fix: add the ignore lines (.gitignore
+                                     when committed, .git/info/exclude when private), drop the lock
+  remembrancer lint [--ids] [--hook] [--json]
+                                     check the files for broken IDs, fields and links
                                      (--ids: IDs and links only. --hook: read a PostToolUse call
                                      on stdin, check only edits under ${DIR}/, exit 2 on problems)
   remembrancer guard [--hook | COMMAND...]
@@ -55,6 +65,14 @@ async function accessKey(): Promise<string> {
   return key;
 }
 
+// One line on stderr and the exit code; with --json, also {ok: false, error, problems}
+// on stdout, so a caller parsing the output always gets JSON.
+function fail(code: number, message: string, json: boolean, problems: unknown[] = []): never {
+  if (json) console.log(JSON.stringify({ ok: false, error: message, problems }, null, 2));
+  console.error(message);
+  process.exit(code);
+}
+
 function requireRoot(): string {
   const root = findRoot();
   if (!root) {
@@ -67,6 +85,7 @@ function requireRoot(): string {
 async function main(argv: string[]) {
   const [cmd, ...args] = argv;
   const flag = (name: string) => args.includes(name);
+  const json = flag("--json");
   // `remembrancer <cmd> --help` shows the one usage page rather than running the command.
   if (flag("--help") || flag("-h")) {
     console.log(USAGE);
@@ -101,6 +120,26 @@ async function main(argv: string[]) {
       console.log(brief(await loadProject(root!), new Date(), visibility(root!)));
       return;
     }
+    case "show": {
+      const ids = args.filter((a) => !a.startsWith("--"));
+      if (!ids.length) fail(2, "usage: remembrancer show ID... [--links] [--json]", json);
+      const project = await loadProject(requireRoot());
+      const shown = ids.map((id) => show(project, id, { links: flag("--links") }));
+      if (json) console.log(JSON.stringify(shown.length === 1 ? shown[0] : shown, null, 2));
+      else console.log(shown.map(formatShown).join("\n\n"));
+      return;
+    }
+    case "doctor": {
+      const { problems, fixed } = await doctor(requireRoot(), { fix: flag("--fix") });
+      if (json) console.log(JSON.stringify({ ok: problems.length === 0, problems, fixed }, null, 2));
+      else {
+        for (const f of fixed) console.log(`fixed: ${f}`);
+        for (const p of problems) console.log(`${p.id ? `${p.id}: ` : ""}${p.message}`);
+        if (!problems.length && !fixed.length) console.log("ok");
+      }
+      if (problems.length) process.exit(1);
+      return;
+    }
     case "lint": {
       if (flag("--hook")) {
         // A PostToolUse hook: stdin holds the tool call. Only edits under .remembrancer/ matter,
@@ -119,6 +158,11 @@ async function main(argv: string[]) {
         return;
       }
       const problems = lint(await loadProject(requireRoot()), { ids: flag("--ids") });
+      if (json) {
+        console.log(JSON.stringify({ ok: problems.length === 0, problems }, null, 2));
+        if (problems.length) process.exit(1);
+        return;
+      }
       for (const p of problems) console.log(`${DIR}/${p.file}: ${p.id ?? "?"}: ${p.message}`);
       if (problems.length) process.exit(1);
       console.log("ok");
@@ -181,4 +225,14 @@ async function main(argv: string[]) {
   }
 }
 
-await main(process.argv.slice(2));
+// Expected failures: a missing entry exits 1; a refused or stale write exits 2 and
+// changed nothing. Anything else is a bug and keeps its stack trace.
+try {
+  await main(process.argv.slice(2));
+} catch (err) {
+  const json = process.argv.includes("--json");
+  if (err instanceof NotFoundError) fail(1, err.message, json);
+  if (err instanceof LintRefusedError) fail(2, err.message, json, err.problems);
+  if (err instanceof RefusedError || err instanceof ConflictError) fail(2, err.message, json);
+  throw err;
+}

@@ -13,6 +13,7 @@ export interface Entry {
   meta: Record<string, string>;
   body: string;
   raw: string;
+  hash: string; // hashText(raw): what `show` prints and `--if` checks
   start: number;
   end: number;
   index: number; // position within its file
@@ -77,6 +78,7 @@ function parseEntry(file: string, raw: string, start: number, end: number, index
     meta,
     body: rest.join("\n").trim(),
     raw,
+    hash: hashText(raw),
     start,
     end,
     index,

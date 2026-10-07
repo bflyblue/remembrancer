@@ -20,6 +20,7 @@ Body in markdown. Keep it short.
 - IDs are never reused or renumbered, so **an entry with an ID is never deleted**. A task is dropped to done.md (`dropped: yes`), a question leaves through an answer, a rule is retired, and an unwanted resource becomes a stub that says why. `remembrancer lint` reports every number up to the highest that no entry uses. Fill a skipped number with a stub (for example `## A063 · Number unused`).
 - Any ID written anywhere (in a body or in metadata) is a link in the UI. `remembrancer lint` reports mentions of IDs that do not exist.
 - Dates are always `YYYY-MM-DD`.
+- `touched: YYYY-MM-DD` (optional, any file) is the last day the CLI or the UI changed the entry. The tools set it.
 - Cite files as a path relative to the project root, in backticks (`src/search/cursor.ts`) or as a markdown link. The UI opens a path that exists, and a markdown link to a missing file shows as broken. Web links are plain `https://…` URLs or markdown links. Write IDs as bare text (`T012`), not as link targets.
 
 ## todo.md

@@ -103,7 +103,7 @@ const ENUMS: Record<string, string[]> = {
   status: ["proposed", "active", "challenged", "retired"],
 };
 
-const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised"];
+const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised", "touched"];
 
 // Keys whose values must be IDs of one kind; `same` means the entry's own kind.
 const LINK_KINDS: Record<string, string> = { closes: "Q", amends: "A", supersedes: "same", "superseded-by": "same" };

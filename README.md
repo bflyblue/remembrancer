@@ -75,6 +75,13 @@ remembrancer next T          # next free ID (T, Q, A, R or K; an answer to Qn is
 remembrancer next Q --claim "title"  # take the next ID and append a stub for it, under a lock
 remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…
 remembrancer lint --ids      # IDs and links only (fast; `--hook` reads a PostToolUse call on stdin)
+remembrancer show A012 T004  # whole entries, each with its hash (`--json` for data)
+remembrancer show A012 --links  # plus links out, links in, and `current:` where a chain of
+                             # superseded-by leads
+remembrancer doctor          # tool files a committed .remembrancer/ would publish (.lock, *.tmp-*,
+                             # .index.db, log/, proposals/), a stale lock, duplicate IDs
+remembrancer doctor --fix    # add the ignore lines (.gitignore when committed, .git/info/exclude
+                             # when private) and remove a stale lock; init adds them too
 remembrancer guard "git commit -m …"   # exit 2 if the command would publish IDs (see hooks above)
 remembrancer serve [dirs…]   # web UI on http://127.0.0.1:4747 (several projects → a switcher)
 remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines (see below)
