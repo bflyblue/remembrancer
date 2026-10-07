@@ -234,3 +234,30 @@ what `stale` and `check` last said, in one line each; resources matching the cur
    runs' input.
 5. **Agents are strongly discouraged from editing the files directly** once the commands exist. The skill's instructions
    say to make every change through the CLI, and the lint hook stays as a safety net for hand edits.
+
+## Side goal: a Claude Code mod
+
+*Added 2026-10-07 at Shaun's request.* Claude Code's mods
+(https://github.com/anthropics/claude-code/blob/main/mods/README.md) are plugins whose behaviour lives in a TypeScript
+hooks module, `register(on, options)`, hooking the engine's events as `($, e, next)`. They can:
+- register commands;
+- run processes;
+- open panes beside the transcript, as the built-in `/diff` mod does;
+- carry tests run with `claude plugin test`.
+
+They are early access, and the API may change between releases. A remembrancer mod, as a thin layer over the CLI's
+`--json` commands, could:
+- **Open a pane, `/rmb`:**
+  - what is waiting on you;
+  - the current plan's next tasks;
+  - the rules, with the challenged and proposed ones flagged;
+  - a search box;
+  - refreshing whenever Claude runs a remembrancer command (as `/diff` refreshes on edits).
+- **Fold in the three hooks:** the session brief, lint after edits, and the commit guard, so one install replaces the
+  `settings.json` entries.
+- **Enforce the rule against direct edits (answer 5):** an agent's edit to `.remembrancer/` is refused, naming the
+  command to use instead, rather than relying on the skill's wording alone.
+- **Register composer commands:** `/rmb waiting`, `/rmb done T###`, `/rmb search …`.
+
+To be built late, after the commands settle, since it depends on their JSON and on an API that may change. The built-in
+mods' source (`mods/diff` especially) is the reference.
