@@ -14,6 +14,7 @@ Pi invocation second (slice 9); curation has two modes, `gather` (cheap model: `
 (slices 9 to 11); the skill tells agents to make every change through the CLI, with the lint hook as the safety net
 and no refusing hook (slice 2 onward).
 
+- **D1, decided (Shaun, 2026-10-07): yes.** Gather runs apply directly; insight runs queue for review.
 - **D1 (slice 10):** gather runs apply directly (reversible metadata) and only insight runs queue? Recommended; the
   alternative queues both.
 
@@ -283,7 +284,7 @@ proposals (gather or manual), `apply --dry-run`, `apply`.
 
 **Done.** Shaun's local model produces a gather file for iapetus that `apply --dry-run` accepts.
 
-## Slice 10: evaluation of gather mode, and the queue (needs D1)
+## Slice 10: evaluation of gather mode, and the queue (D1 decided: gather applies, insight queues)
 
 **Goal.** A score table that says whether the cheap model may run unattended, and runs that apply nothing unseen.
 
