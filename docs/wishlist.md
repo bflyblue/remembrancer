@@ -208,3 +208,27 @@ what `stale` and `check` last said, in one line each; resources matching the cur
    example script works on your machine?
 4. Should the skill tell agents to stop editing the files directly once the commands exist, with the hook refusing
    direct edits?
+
+## Shaun's answers (2026-10-07)
+
+1. **The UI stays small.** It is used to see outstanding tasks, to search questions and answers, and to watch the rules.
+   Favour reading and search; add only basic operations (close a task, mark an item stale, and similar), and every
+   write honours the lock.
+2. **The knowledge base is opt-in.** Often `.remembrancer/` is not committed at all, only allowed in the project. The
+   knowledge base's markdown is text; the index (`.index.db`) is binary, so it is always git-ignored and rebuilt. A
+   project turns the knowledge base on in its config; without it, `search` and `show` index the active files and
+   `archive/`, and curation's `archive` action moves entries to `archive/` as today.
+3. **Local models run through Pi** (Shaun's agent), served over an OpenAI-compatible API; the model is "opus 3.8 flash
+   infer", good for its size. The example curator should target an OpenAI-compatible endpoint (URL, model and key from
+   the environment), and a Pi invocation as a second example.
+4. **Two tiers of curation:**
+   - **Gather, daily or more often, by the cheap local model:** find patterns and group similar entries together:
+     cluster, tag, link, flag stale, suggest archiving. **No major rewrites:** it may not write new entry text beyond a
+     cluster's short label.
+   - **Condense and find insight, once or twice a week, by Opus or Fable:** condensing, merging into new entries,
+     finding meaning across clusters.
+
+   So the proposals format has modes, and `apply` enforces them: a run in `gather` mode may only `cluster` (a new action:
+   a named group with members, stored as tags and links), `retag`, `link`, `flag` and `archive` (to suggest); `condense`
+   and new entry text are refused unless the run is in `insight` mode. The gather runs' clusters become the insight
+   runs' input.
