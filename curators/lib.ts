@@ -2,6 +2,7 @@
 // about each case (one small prompt per case), check the answer, retry once
 // with the problems named, and print a gather proposals file on stdout.
 // Progress and skipped cases go to stderr. Run from a remembrancer checkout.
+import { mentions } from "../src/model";
 import { validate } from "../src/proposals";
 import actionSchema from "../schema/action.json";
 
@@ -76,12 +77,63 @@ export function extractJson(text: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
-// The answer's actions, completed (if hashes, the case name), or its problems.
-export function checkAnswer(answer: unknown, c: PacketCase, mode = "gather"): { actions: Record<string, unknown>[]; problems: string[] } {
+// The IDs an entry names anywhere: its title, metadata and body.
+const names = (e: PacketCase["entries"][number]) => new Set(mentions([e.title, ...Object.values(e.meta), e.body].join("\n")));
+
+// A link the model proposed that the records already hold, so that applying it
+// would change nothing: a `refs` between entries that already name each other
+// (the graph reads a reference from either end), or between members of a
+// cluster proposed in the same answer (the cluster's tag connects them); an
+// `amends`, `supersedes` or `closes` already in the metadata. Dropped, not
+// retried: the model was right about the relation, only late.
+function alreadyLinked(a: Record<string, unknown>, c: PacketCase, clusters: string[][]): string | null {
+  const from = c.entries.find((e) => e.id === a.from);
+  const to = String(a.to ?? "").toUpperCase();
+  if (!from || !to) return null;
+  const target = c.entries.find((e) => e.id === to);
+  if (a.rel === "refs") {
+    if (names(from).has(to)) return `${from.id} already names ${to}`;
+    if (target && names(target).has(from.id)) return `${to} already names ${from.id}`;
+    if (clusters.some((m) => m.includes(from.id) && m.includes(to))) return `${from.id} and ${to} are in one cluster this answer proposes`;
+    return null;
+  }
+  return mentions(from.meta[String(a.rel)] ?? "").includes(to) ? `${from.id} already ${a.rel} ${to}` : null;
+}
+
+// A cluster of exactly two entries that already name each other: its tag would
+// connect what the records already connect.
+function alreadyPaired(a: Record<string, unknown>, c: PacketCase): string | null {
+  const members = Array.isArray(a.members) ? (a.members as string[]).map((m) => String(m).toUpperCase()) : [];
+  if (new Set(members).size !== 2) return null;
+  const [x, y] = members.map((id) => c.entries.find((e) => e.id === id));
+  if (!x || !y) return null;
+  if (names(x).has(y.id)) return `${x.id} already names ${y.id}`;
+  if (names(y).has(x.id)) return `${y.id} already names ${x.id}`;
+  return null;
+}
+
+// What the rels mean by kind: closes is an answer settling a question; amends
+// and supersedes stand between two answers or two rules. `apply` refuses the
+// rest, so the model is told now and can answer again.
+function linkKindProblem(a: Record<string, unknown>, c: PacketCase): string | null {
+  const from = c.entries.find((e) => e.id === a.from);
+  const to = String(a.to ?? "").toUpperCase();
+  if (!from || !to) return null;
+  const toKind = to[0]; // an ID's letter is its kind, in the case or not
+  if (a.rel === "closes") return from.kind === "A" && toKind === "Q" ? null : "closes links an answer (A) to a question (Q)";
+  if (a.rel === "amends" || a.rel === "supersedes") {
+    return ["A", "R"].includes(from.kind) && toKind === from.kind ? null : `${a.rel} links an answer to an answer or a rule to a rule`;
+  }
+  return null;
+}
+
+// The answer's actions, completed (if hashes, the case name), or its problems;
+// `dropped` names the links left out because the records already hold them.
+export function checkAnswer(answer: unknown, c: PacketCase, mode = "gather"): { actions: Record<string, unknown>[]; problems: string[]; dropped: string[] } {
   const actions = (answer as { actions?: unknown })?.actions;
-  if (!Array.isArray(actions)) return { actions: [], problems: ['the answer must be {"actions": [...]}'] };
+  if (!Array.isArray(actions)) return { actions: [], problems: ['the answer must be {"actions": [...]}'], dropped: [] };
   const hashes = new Map(c.entries.map((e) => [e.id, e.hash]));
-  const done = actions.map((a) => {
+  const all = actions.map((a) => {
     const x = { ...(a as Record<string, unknown>) };
     delete x.if;
     const subject = (x.id ?? (typeof x.from === "string" ? x.from : undefined)) as string | undefined;
@@ -89,15 +141,24 @@ export function checkAnswer(answer: unknown, c: PacketCase, mode = "gather"): { 
     if (x.action === "cluster" || x.action === "condense") x.case = c.case;
     return x;
   });
-  if (!done.length) return { actions: [], problems: [] };
+  const clusters = all.filter((a) => a.action === "cluster" && Array.isArray(a.members)).map((a) => (a.members as string[]).map((m) => String(m).toUpperCase()));
+  const dropped: string[] = [];
+  const done = all.filter((a) => {
+    const why = a.action === "link" ? alreadyLinked(a, c, clusters) : a.action === "cluster" ? alreadyPaired(a, c) : null;
+    if (why) dropped.push(`${a.action} ${a.action === "link" ? `${a.from} ${a.rel} ${a.to}` : (a.members as string[]).join(", ")}: ${why}`);
+    return !why;
+  });
+  if (!done.length) return { actions: [], problems: [], dropped };
   const problems = validate({ mode, made: "2000-01-01", by: "check", actions: done });
   done.forEach((a, i) => {
     if (!c.allowed.includes(a.action as string)) problems.push(`action ${i + 1}: ${a.action} is not allowed in this case (allowed: ${c.allowed.join(", ")})`);
     for (const id of [a.id, ...(Array.isArray(a.from) ? a.from : [a.from]), ...((a.members as string[]) ?? [])]) {
       if (typeof id === "string" && !hashes.has(id)) problems.push(`action ${i + 1}: ${id} is not one of this case's entries`);
     }
+    const kind = a.action === "link" ? linkKindProblem(a, c) : null;
+    if (kind) problems.push(`action ${i + 1}: ${kind}`);
   });
-  return { actions: done, problems };
+  return { actions: done, problems, dropped };
 }
 
 export function caseMessage(c: PacketCase): string {
@@ -111,12 +172,14 @@ export async function runCurator(ask: Ask, by: string) {
   for (const [n, c] of packet.cases.entries()) {
     const messages: Message[] = [{ role: "system", content: system }, { role: "user", content: caseMessage(c) }];
     let problems: string[] = [];
+    let dropped: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
       let reply = "";
       try {
         reply = await ask(messages, caseSchema(c));
         const checked = checkAnswer(extractJson(reply), c, packet.mode);
         problems = checked.problems;
+        dropped = checked.dropped;
         if (!problems.length) {
           actions.push(...checked.actions);
           break;
@@ -126,7 +189,8 @@ export async function runCurator(ask: Ask, by: string) {
       }
       messages.push({ role: "assistant", content: reply }, { role: "user", content: `That answer had problems:\n- ${problems.join("\n- ")}\nAnswer again with the JSON object only.` });
     }
-    console.error(`${c.case} (${n + 1}/${packet.cases.length}): ${problems.length ? `skipped: ${problems.join("; ")}` : "ok"}`);
+    const left = dropped.length ? `; already in the records, left out: ${dropped.join("; ")}` : "";
+    console.error(`${c.case} (${n + 1}/${packet.cases.length}): ${problems.length ? `skipped: ${problems.join("; ")}` : "ok"}${left}`);
   }
   const made = new Date().toISOString().slice(0, 10);
   console.log(JSON.stringify({ mode: packet.mode, packet: packet.packet, made, by, actions }, null, 2));
