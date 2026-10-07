@@ -63,6 +63,15 @@ describe("the packet", () => {
     expect(packet.packet).toMatch(/^[0-9a-f]+$/);
   });
 
+  test("a cited path gone is a drift case for insight runs only: no gather action fixes it", async () => {
+    await write("todo.md", "# Todo\n\n" + todo("T009", "Old layout", "").replace("About old layout.", "See `docs/gone/`."));
+    const project = await loadProject(root);
+    const kinds = (mode: "gather" | "insight") =>
+      buildPacket(project, { mode }).cases.filter((c) => c.kind === "drift").flatMap((c) => c.entries.map((e) => e.id));
+    expect(kinds("gather")).not.toContain("T009");
+    expect(kinds("insight")).toContain("T009");
+  });
+
   test("a group never passes twelve members", async () => {
     await write("todo.md", "# Todo\n\n" + Array.from({ length: 30 }, (_, i) => todo(`T${String(i + 1).padStart(3, "0")}`, "Radiator sizing", " · tags: radiators")).join("\n"));
     const groups = similarGroups((await loadProject(root)).entries.filter((e) => e.file === "todo.md"));

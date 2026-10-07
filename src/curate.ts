@@ -233,7 +233,8 @@ export function buildPacket(project: Project, { scope = "active" as Scope, now =
   // Drift: references gone stale, rules unreviewed, answers whose condition may hold.
   const reasons = new Map<string, string[]>();
   const note = (id: string, why: string) => reasons.set(id, [...(reasons.get(id) ?? []), why]);
-  for (const d of drift(project)) note(d.entry.id!, d.message);
+  // A cited path or anchor gone is lint's finding, and no gather action fixes it, so only insight runs see it.
+  if (mode === "insight") for (const d of drift(project)) note(d.entry.id!, d.message);
   for (const a of attention(project, now)) if (a.kind === "unreviewed-rule" && a.id) note(a.id, a.message);
   for (const [id, why] of revisitHints(project)) note(id, why);
   add("drift", [...reasons.keys()].map(byId).filter((e): e is Entry => !!e), (g) => g.map((e) => `${e.id}: ${reasons.get(e.id!)!.join("; ")}`).join(" | "));
