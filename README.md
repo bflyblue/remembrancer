@@ -148,7 +148,7 @@ Two example curators live in `curators/` (the system prompt is `curators/gather.
   | `REMEMBRANCER_LLM_FORMAT` | `json_schema` (default), `json_object`, or `none` for servers without structured output |
   | `REMEMBRANCER_LLM_EXTRA` | JSON merged into each request, e.g. `{"chat_template_kwargs": {"enable_thinking": false}}` for a thinking model |
 
-- **`curators/pi.sh`**: the same through Pi (`pi -p`), for a model Pi already reaches. `REMEMBRANCER_PI_MODEL` (required, e.g. `ceres-vllm-0/qwen3.8-flash-next`) and `REMEMBRANCER_PI_THINKING` (default `off`). Pi has no structured output, so the schema goes in the prompt.
+- **`curators/pi.sh`**: the same through Pi (`pi -p`), for a model Pi already reaches. `REMEMBRANCER_PI_MODEL` (optional: Pi's default model when unset; e.g. `ceres-vllm-0/qwen3.8-flash-next`) and `REMEMBRANCER_PI_THINKING` (default `off`). Pi has no structured output, so the schema goes in the prompt.
 
 For example, from a project's root:
 
