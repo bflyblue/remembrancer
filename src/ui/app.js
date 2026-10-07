@@ -15,6 +15,7 @@ const TABS = [
   { key: "scratch", label: "Scratch", files: [] },
   { key: "archive", label: "Archive", files: null },
   { key: "attention", label: "Attention", files: [] },
+  { key: "queue", label: "Queue", files: [] },
 ];
 
 // Below this width the list and the detail are two screens rather than two panes (see style.css).
@@ -39,8 +40,11 @@ const state = {
   selected: null, // entry key "file#index", or null
   query: "",
   filters: {},
-  editing: null, // { key, text, entryId, file } while an edit box is open
+  editing: null, // { key, text, entryId, file } while an edit box is open; mode "answer" for closing a question
   events: null,
+  hits: null, // the search endpoint's hits for state.query: [{ id, via, score }], or null while none
+  queueSel: null, // the queued proposals file shown, by name
+  queueShow: null, // { name, show, proposals } from /proposals?name=
 };
 
 // ---------- helpers ----------
@@ -238,6 +242,8 @@ function subscribe() {
   state.events = new EventSource(`/api/p/${state.p}/events`);
   state.events.onmessage = () =>
     load().then(() => {
+      runSearch();
+      if (state.queueSel && (state.data.queue || []).some((q) => q.name === state.queueSel)) showQueued(state.queueSel);
       // Our own writes also trigger a change event; only announce outside edits.
       if (!state.editing && Date.now() - (state.lastOp || 0) > 2500) toast("Reloaded: files changed on disk");
     });
@@ -306,9 +312,34 @@ function selectedEntry() {
 
 // ---------- list ----------
 
+// Ranked search through the server (FTS5, stemmed, archive included); while it
+// answers, or if the query is not valid search syntax, a plain substring filter.
+let searchTimer = null;
+function runSearch() {
+  clearTimeout(searchTimer);
+  const q = state.query.trim();
+  if (!q) {
+    state.hits = null;
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      const res = await api(`/api/p/${state.p}/search?q=${encodeURIComponent(q)}&all=1&k=40`);
+      if (state.query.trim() !== q) return;
+      state.hits = res.hits.map((h) => ({ id: h.id, via: h.via, score: h.score }));
+    } catch {
+      state.hits = null;
+    }
+    render();
+  }, 150);
+}
+
 function entriesForTab() {
   const d = state.data;
   const q = state.query.trim().toLowerCase();
+  if (q && state.hits) {
+    return state.hits.map((h) => d.entries.find((e) => e.id === h.id)).filter(Boolean);
+  }
   if (q) {
     const terms = q.split(/\s+/);
     return d.entries.filter((e) => {
@@ -332,9 +363,10 @@ function renderFilters() {
   const box = document.getElementById("filters");
   box.replaceChildren();
   if (state.query) {
-    box.append(h("span", { class: "muted" }, `Searching all files for “${state.query}”`));
+    box.append(h("span", { class: "muted" }, state.hits ? `Ranked results for “${state.query}”, archive included` : `Searching all files for “${state.query}”`));
     return;
   }
+  if (state.tab === "rules") box.append(checksSummary());
   const groups = FILTERS[state.tab];
   if (!groups) return;
   const current = (state.filters[state.tab] ||= {});
@@ -365,11 +397,43 @@ function badges(e) {
     const web = /^https?:\/\/([^/]+)/i.exec(m.link);
     out.push(h("span", { class: "badge file", title: m.link }, web ? web[1].replace(/^www\./, "") : "file"));
   }
-  if (m["enforced-by"]) out.push(h("span", { class: "badge tested", title: m["enforced-by"] }, "tested"));
+  if (m["waiting-on"]) out.push(h("span", { class: "badge waiting", title: "waiting on " + m["waiting-on"] }, `waits on ${m["waiting-on"]}`));
+  if (e.kind === "R" && m["enforced-by"]) out.push(checkBadge(e));
+  if (m.kind === "theme") out.push(h("span", { class: "badge theme", title: "condensed from " + (m["condensed-from"] || "?") }, "theme"));
+  if (m["condensed-into"]) out.push(h("span", { class: "badge into", title: "condensed into " + m["condensed-into"] }, `→ ${m["condensed-into"]}`));
+  if (m.suggest) out.push(h("span", { class: "badge suggest" }, `suggest ${m.suggest}`));
+  for (const tag of (m.tags || "").split(/[,\s]+/).filter(Boolean).slice(0, 3)) out.push(h("span", { class: `badge tag ${tag.startsWith("c-") ? "cluster" : ""}` }, tag));
+  const via = state.query && state.hits?.find((x) => x.id === e.id)?.via;
+  if (via) out.push(h("span", { class: "badge into", title: "the current entry for a hit" }, `via ${via}`));
   const blocked = state.data.todoOrder.find((t) => t.id === e.id)?.blockedBy || [];
   if (e.file === "todo.md" && blocked.length) out.push(h("span", { class: "badge blocked" }, `after ${blocked.join(", ")}`));
   if (state.query) out.push(h("span", { class: "badge file" }, e.file.replace(/\.md$/, "")));
   return out;
+}
+
+// A rule's last machine check (remembrancer check), from .remembrancer/log/checks.json.
+function checkOf(e) {
+  return state.data.checks?.[e.id] || null;
+}
+
+function checkBadge(e) {
+  const c = checkOf(e);
+  if (!c) return h("span", { class: "badge tested", title: e.meta["enforced-by"] }, "check not run");
+  const label = c.status === "pass" ? "check pass" : c.status === "fail" ? "check FAIL" : "no runner";
+  return h("span", { class: `badge chk-${c.status}`, title: `${c.message} (${c.at})` }, label);
+}
+
+function checksSummary() {
+  const c = state.data.brief?.checks;
+  if (!c || !(c.pass + c.fail + c.unrunnable + c.notRun)) return h("span", { class: "muted" }, "No rule has a machine check (enforced-by).");
+  const last = Object.values(state.data.checks || {}).map((x) => x.at).sort().pop();
+  return h("div", { class: `checks ${c.fail ? "failing" : ""}` },
+    h("strong", {}, "Checks: "),
+    c.fail ? h("span", { class: "badge chk-fail" }, `${c.fail} FAIL`) : null,
+    h("span", { class: "badge chk-pass" }, `${c.pass} pass`),
+    c.notRun ? h("span", { class: "badge" }, `${c.notRun} not run`) : null,
+    c.unrunnable ? h("span", { class: "badge" }, `${c.unrunnable} no runner`) : null,
+    h("span", { class: "muted" }, last ? `  last run ${last.replace("T", " ")} · remembrancer check` : "  run: remembrancer check"));
 }
 
 function listItem(e) {
@@ -388,6 +452,7 @@ function renderList() {
   const ul = document.getElementById("list");
   ul.replaceChildren();
   if (state.tab === "attention" && !state.query) return renderAttentionList(ul);
+  if (state.tab === "queue" && !state.query) return renderQueueList(ul);
   if (state.tab === "scratch" && !state.query) {
     ul.append(h("li", { class: "sel" }, h("div", { class: "row1" }, h("span", { class: "title" }, "scratch.md"))));
     return;
@@ -404,9 +469,27 @@ function renderList() {
   } else list.forEach((e) => ul.append(listItem(e)));
 }
 
+// Entries that wait on someone, rules whose check fails, the inbox, stale and suggested entries: the signals, first.
+function signals() {
+  const d = state.data;
+  const live = (e) => !/^(archive|kb)\//.test(e.file);
+  return [
+    ["waiting on you" + (d.brief?.owner ? ` (${d.brief.owner})` : ""), (d.brief?.waiting || []).map((w) => findById(w.id)).filter(Boolean)],
+    ["failing checks", d.entries.filter((e) => e.kind === "R" && checkOf(e)?.status === "fail")],
+    ["inbox", d.entries.filter((e) => e.file === "todo.md" && e.meta.status === "inbox")],
+    ["suggested for archive", d.entries.filter((e) => live(e) && e.meta.suggest === "archive")],
+    ["stale", (d.stale || []).map((s) => findById(s.id)).filter(Boolean)],
+  ].filter(([, list]) => list.length);
+}
+
 function renderAttentionList(ul) {
   const { attention, problems } = state.data;
-  if (!attention.length && !problems.length) ul.append(h("li", { class: "empty" }, "Nothing needs attention."));
+  const sig = signals();
+  if (!attention.length && !problems.length && !sig.length) ul.append(h("li", { class: "empty" }, "Nothing needs attention."));
+  for (const [label, list] of sig) {
+    ul.append(h("li", { class: "group" }, `${label} (${list.length})`));
+    list.forEach((e) => ul.append(listItem(e)));
+  }
   const item = (id, file, index, label, message, cls) =>
     h("li", {
       class: cls,
@@ -433,6 +516,49 @@ function renderAttentionList(ul) {
       ul.append(item(a.id, a.file, a.index, a.message, e ? e.title : a.file));
     }
   }
+}
+
+function renderQueueList(ul) {
+  const q = state.data.queue || [];
+  if (!q.length) ul.append(h("li", { class: "empty" }, "The queue is empty. Curator runs queued with --queue wait here."));
+  for (const item of q) {
+    ul.append(h("li", { class: item.name === state.queueSel ? "sel" : "", onclick: () => showQueued(item.name) },
+      h("div", { class: "row1" }, h("span", { class: "title" }, item.name)),
+      h("div", { class: "row2" }, h("span", { class: "badge" }, item.mode), h("span", { class: "badge" }, plural(item.actions, "action")), h("span", { class: "age" }, `by ${item.by}, ${item.made}`))));
+  }
+}
+
+async function showQueued(name) {
+  state.queueSel = name;
+  try {
+    state.queueShow = await api(`/api/p/${state.p}/proposals?name=${encodeURIComponent(name)}`);
+  } catch (err) {
+    state.queueShow = null;
+    toast(err.message, "error");
+  }
+  render();
+}
+
+// After an apply or a reject, the file has left the queue.
+function leaveQueued(ok) {
+  if (!ok) return;
+  state.queueSel = null;
+  state.queueShow = null;
+  render();
+}
+
+function renderQueue(pane) {
+  const s = state.queueShow;
+  if (!s || s.name !== state.queueSel) {
+    pane.append(h("div", { class: "placeholder" }, h("p", {}, "A curator run, queued for review. Pick one to read it, then apply or reject it.")));
+    return;
+  }
+  pane.append(h("div", { class: "dhead" }, h("h2", {}, s.name), h("span", { class: "muted" }, `.remembrancer/proposals/${s.name}`)));
+  pane.append(h("div", { class: "actions" },
+    h("button", { class: "primary", onclick: () => confirm(`Apply all ${s.proposals.actions.length} actions in ${s.name}?`) && op({ op: "proposals-apply", name: s.name }, (r) => `applied ${r.applied.length}`).then(leaveQueued) }, "Apply"),
+    h("button", { class: "danger", onclick: () => { const why = prompt("Why reject it? (one line, logged)"); if (why) op({ op: "proposals-reject", name: s.name, why }, `${s.name} rejected`).then(leaveQueued); } }, "Reject"),
+    h("span", { class: "muted" }, "Applied in one locked step, or refused whole; logged in .remembrancer/log/curation.md.")));
+  pane.append(h("pre", { class: "show" }, s.show));
 }
 
 // ---------- detail ----------
@@ -486,6 +612,13 @@ function actions(e) {
   bar.append(h("button", { onclick: () => startEdit(e) }, "Edit"));
   if (e.file === "todo.md") bar.append(h("button", { onclick: () => op({ op: "complete", ref }, `${e.id} moved to done`) }, "Mark done"));
   if (e.file === "done.md") bar.append(h("button", { onclick: () => op({ op: "archive", ref }, (r) => `${e.id} archived to ${r.moved}`) }, "Archive"));
+  if (e.file === "questions.md") bar.append(h("button", { onclick: () => startAnswer(e) }, "Answer…"));
+  if (e.id && !/^(archive|kb)\//.test(e.file)) {
+    bar.append(e.meta.suggest === "archive"
+      ? h("button", { onclick: () => op({ op: "meta", ref, updates: { suggest: "" } }, `${e.id}: no longer suggested`) }, "Unmark stale")
+      : h("button", { title: "Suggest archiving it (suggest: archive); a person or the weekly run decides", onclick: () => op({ op: "meta", ref, updates: { suggest: "archive" } }, `${e.id} marked stale`) }, "Mark stale"));
+  }
+  if (e.meta["waiting-on"]) bar.append(h("button", { onclick: () => op({ op: "meta", ref, updates: { "waiting-on": "" } }, `${e.id} waits on no one`) }, "Done waiting"));
   if (e.kind === "R" && !e.file.startsWith("archive/")) {
     bar.append(h("button", { onclick: () => op({ op: "meta", ref, updates: { reviewed: today() } }, `${e.id} marked reviewed`) }, "Mark reviewed"));
     const sel = h("select", {
@@ -514,6 +647,24 @@ function actions(e) {
     );
   }
   return bar;
+}
+
+// Close a question: its answer's sections, saved through `remembrancer answer` (the answer takes its number).
+function startAnswer(e) {
+  state.editing = { key: keyOf(e), mode: "answer", title: "", text: "**Answer:** \n\n**Why:** \n\n**Alternatives considered:** \n", entryId: e.id, file: e.file, entry: e.entry };
+  render();
+}
+
+function answerEditor(e) {
+  const title = h("input", { type: "text", placeholder: "The answer in one line", oninput: (ev) => (state.editing.title = ev.target.value) });
+  title.value = state.editing.title;
+  const ta = h("textarea", { spellcheck: "false", rows: 14, oninput: (ev) => (state.editing.text = ev.target.value) });
+  ta.value = state.editing.text;
+  const save = () => op({ op: "answer", ref: { ...refOf(e), entry: state.editing.entry }, title: state.editing.title, text: state.editing.text }, (r) => `${e.id} answered as ${r.id}`);
+  return h("div", { class: "editor" }, title, ta, h("div", { class: "actions" },
+    h("button", { class: "primary", onclick: save }, "Save the answer"),
+    h("button", { onclick: () => { state.editing = null; render(); } }, "Cancel"),
+    h("span", { class: "muted" }, "The question is copied in as **Question**, and the question leaves questions.md.")));
 }
 
 function startEdit(e) {
@@ -578,6 +729,7 @@ function renderDetail() {
   const pane = document.getElementById("detail");
   pane.replaceChildren();
   if (state.tab === "scratch" && !state.query) return renderScratch(pane);
+  if (state.tab === "queue" && !state.query) return renderQueue(pane);
   const e = selectedEntry();
   if (!e) {
     pane.append(h("div", { class: "placeholder" }, overview()));
@@ -593,9 +745,16 @@ function renderDetail() {
       h("span", { class: "muted" }, `.remembrancer/${e.file}`)),
   );
   if (state.editing?.key === keyOf(e)) {
-    pane.append(editor(e));
+    pane.append(state.editing.mode === "answer" ? answerEditor(e) : editor(e));
     return;
   }
+  const into = (e.meta["condensed-into"] || "").match(ID_RE)?.[0];
+  const by = (e.meta["superseded-by"] || "").match(ID_RE)?.[0];
+  if (into) pane.append(h("p", { class: "banner" }, "Condensed into ", idLink(into), ` ${findById(into)?.title || ""}: read that instead.`));
+  else if (by) pane.append(h("p", { class: "banner" }, "Superseded by ", idLink(by), ` ${findById(by)?.title || ""}.`));
+  if (e.meta["waiting-on"]) pane.append(h("p", { class: "banner waiting" }, `Waiting on ${e.meta["waiting-on"]}.`));
+  const chk = e.kind === "R" && checkOf(e);
+  if (chk) pane.append(h("p", { class: `banner chk-${chk.status}` }, `Machine check: ${chk.status === "pass" ? "passed" : chk.status === "fail" ? "FAILED" : "not run"}, ${chk.at.replace("T", " ")}: ${chk.message}`));
   pane.append(actions(e), metaTable(e));
   const body = h("article", { class: "md" });
   body.innerHTML = e.html;
@@ -611,6 +770,8 @@ function overview() {
     h("h2", {}, d.name),
     h("p", { class: "muted" }, d.root),
     h("p", {}, `${count("todo.md")} todo · ${plural(count("questions.md"), "open question")} · ${plural(count("rules.md"), "rule")} · ${count("done.md")} done · ${plural(count("answers.md"), "answer")} · ${plural(count("resources.md"), "resource")}`),
+    d.brief?.waiting?.length ? h("p", { class: "banner waiting" }, `Waiting on ${d.brief.owner || "someone"}: `, ...d.brief.waiting.flatMap((w, i) => [i ? ", " : "", idLink(w.id)])) : null,
+    checksSummary(),
     h("p", {}, d.attention.length || d.problems.length ? `${d.attention.length + d.problems.length} items need attention.` : "Nothing needs attention."),
     h("p", { class: "muted keys" }, "Keys: / search · j/k move · Enter open · e edit · Esc back"));
 }
@@ -623,7 +784,8 @@ function renderTabs() {
   const d = state.data;
   for (const t of TABS) {
     let n;
-    if (t.key === "attention") n = d.attention.length + d.problems.length;
+    if (t.key === "attention") n = d.attention.length + d.problems.length + signals().reduce((s, [, l]) => s + l.length, 0);
+    else if (t.key === "queue") n = (d.queue || []).length;
     else if (t.key === "archive") n = d.entries.filter((e) => e.file.startsWith("archive/")).length;
     else if (t.key !== "scratch") n = d.entries.filter((e) => t.files.includes(e.file)).length;
     nav.append(h("button", {
@@ -715,6 +877,7 @@ async function main() {
   const search = document.getElementById("search");
   search.addEventListener("input", () => {
     state.query = search.value;
+    runSearch();
     // On a phone an open entry covers the results; searching means going back to the list.
     if (NARROW.matches && state.selected && !state.editing) {
       state.selected = null;

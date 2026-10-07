@@ -200,7 +200,10 @@ In the agent: `/remembrancer init | status | plan | review | curate | stuck`, or
 
 ### The UI
 
-- There are tabs for each file, an **Attention** view and a search over everything, archive included (press `/` to search).
+The UI is for reading: what is outstanding, what was decided, and how the rules stand. Its writes are few and basic, and each takes the same lock and checks as the CLI.
+
+- There are tabs for each file, an **Attention** view, a **Queue** view and a search over everything, archive included (press `/` to search). Search is ranked (the same index as `remembrancer search`): a superseded or condensed hit brings its current entry, marked *via*.
+- **Signals are badges and banners:** *waits on shaun* (`waiting-on`), each rule's last machine check (*check pass*, *check FAIL*, *check not run*), *theme* entries and *→ T269* on an entry condensed into one, *suggest archive*, and the first tags. The overview and the Rules tab open with the checks' summary (`remembrancer check` runs them).
 - Links in entries work inside the app:
   - IDs open the entry, and web links open in a new tab.
   - A file path, as a link or in backticks, opens the file when it exists. It is tried from the entry's own file first, then from the project root, then from the git root.
@@ -208,14 +211,15 @@ In the agent: `/remembrancer init | status | plan | review | curate | stuck`, or
   - Only files that some entry links to are served (never `.git` or `.env*`), and they are sandboxed.
   - A link to a missing file, or with an unsafe scheme, shows as broken.
 - Every `T/Q/A/R` ID is a link. Each entry shows what refers to it, questions and answers link to each other, and a rule shows its lineage (what it supersedes and what supersedes it).
-- The Attention view lists:
+- The Attention view lists, first, what waits on the owner, failing checks, the inbox, entries suggested for archiving and stale entries; then:
   - stale todos and questions
   - done entries due for curation
   - proposed and challenged rules
   - rules not reviewed in the last 90 days
   - heuristics worth sharpening
   - lint problems
-- You can edit an entry in place (only that entry's text changes), mark a todo done or drop it, archive, delete a malformed entry (never one with an ID), change a rule's status, or mark a rule reviewed.
+- The Queue view lists curator runs waiting for review and shows each one by case, with titles; **Apply** and **Reject** do what `remembrancer apply` and `proposals reject` do.
+- You can edit an entry in place (only that entry's text changes), mark a todo done or drop it, archive, **mark stale** (`suggest: archive`, for a person or the weekly run to decide), clear `waiting-on`, **answer** a question (its sections filled in, saved through `remembrancer answer`), delete a malformed entry (never one with an ID), change a rule's status, or mark a rule reviewed.
 - If the agent changed a file after you loaded it, your write is refused rather than overwriting its change. The page reloads live when the files change on disk.
 - The server listens on 127.0.0.1 unless you pass `--host`, and then it requires the access key. Writes need a per-run token, and pages are served with a strict CSP.
 

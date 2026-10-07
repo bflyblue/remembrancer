@@ -1,11 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
-import { statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { THRESHOLDS, attention, lint, openTodos } from "./analyse";
 import { linksIn, renderMarkdown, servedRoot } from "./links";
 import { DEFAULT_K, search } from "./search";
 import type { Kind } from "./model";
-import { LintRefusedError, archiveEntry, completeEntry, deleteEntry, replaceEntry, replaceFile, setMeta } from "./commands";
+import { LintRefusedError, answerQuestion, archiveEntry, completeEntry, deleteEntry, replaceEntry, replaceFile, setMeta } from "./commands";
+import { briefData } from "./brief";
+import { CHECKS_LOG, readChecksLog } from "./check";
+import { LOG, ProposalsRefusedError, apply as applyFile, readProposals } from "./proposals";
+import { QUEUE, listQueue, markApplied, rejectQueued, resolveQueued, showQueued } from "./queue";
+import { stale } from "./signals";
 import { ConflictError, DIR, type EntryRef, NotFoundError, RefusedError, listFiles, loadProject } from "./project";
 import appJs from "./ui/app.js" with { type: "text" };
 import indexHtml from "./ui/index.html" with { type: "text" };
@@ -25,8 +30,11 @@ const ACTIVE = /html|svg|xml/i;
 // rebinding); beyond loopback, require the access key on every request.
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'";
 
+// What the page shows changes when any entry file, the queue or the checks' log does.
 function signature(root: string): string {
-  return listFiles(root)
+  const queue = join(root, DIR, QUEUE);
+  const extra = [CHECKS_LOG, LOG, ...(existsSync(queue) ? readdirSync(queue).map((f) => `${QUEUE}/${f}`) : [])];
+  return [...listFiles(root), ...extra]
     .map((rel) => {
       const s = statSync(join(root, DIR, rel), { throwIfNoEntry: false });
       return `${rel}:${s?.mtimeMs}:${s?.size}`;
@@ -68,6 +76,12 @@ async function projectData(root: string, top: string) {
     todoOrder: openTodos(project).map((t) => ({ id: t.id, blockedBy: t.blockedBy })),
     attention: attention(project),
     problems: lint(project),
+    // What the brief says (waiting on the owner, the phase, the rules and their checks), as data.
+    brief: briefData(project, new Date(), null),
+    // Each rule's last machine check (remembrancer check), by ID.
+    checks: readChecksLog(root),
+    stale: stale(project),
+    queue: await listQueue(root),
   };
 }
 
@@ -157,12 +171,21 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
       if (url.pathname === "/style.css") return page(styleCss, "text/css; charset=utf-8");
       if (url.pathname === "/api/projects") return json(roots.map((root, i) => ({ i, name: root.split("/").pop(), root })));
 
-      const m = /^\/api\/p\/(\d+)(\/events|\/op|\/file|\/search)?$/.exec(url.pathname);
+      const m = /^\/api\/p\/(\d+)(\/events|\/op|\/file|\/search|\/proposals)?$/.exec(url.pathname);
       const i = m ? parseInt(m[1], 10) : -1;
       const root = roots[i];
       if (!m || !root) return json({ error: "not found" }, 404);
 
       if (!m[2] && req.method === "GET") return json(await projectData(root, tops[i]));
+
+      if (m[2] === "/proposals" && req.method === "GET") {
+        // The queue, read only here: the list, or one file as `proposals show` prints it.
+        const name = url.searchParams.get("name");
+        if (!name) return json({ queue: await listQueue(root) });
+        const path = resolveQueued(root, name);
+        if (!path) return json({ error: `no queued proposals ${name}` }, 404);
+        return json({ name, proposals: await readProposals(path), show: await showQueued(root, await loadProject(root), name) });
+      }
 
       if (m[2] === "/search" && req.method === "GET") {
         // The same hits as `remembrancer search --json`.
@@ -213,7 +236,10 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
 
       if (m[2] === "/op" && req.method === "POST") {
         if (req.headers.get("x-token") !== token) return json({ error: "bad token" }, 403);
-        const body = (await req.json()) as { op: string; ref?: EntryRef; raw?: string; updates?: Record<string, string>; file?: string; hash?: string; text?: string };
+        const body = (await req.json()) as {
+          op: string; ref?: EntryRef; raw?: string; updates?: Record<string, string>; file?: string; hash?: string; text?: string;
+          title?: string; name?: string; why?: string;
+        };
         try {
           const ref = body.ref!;
           switch (body.op) {
@@ -235,6 +261,22 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
             case "file":
               await replaceFile(root, body.file ?? "", body.hash ?? "", body.text ?? "");
               break;
+            case "answer": {
+              // Close a question: the answer's sections in body.text, checked against the question as read.
+              if (!ref?.id) return json({ error: "answer needs the question's ref" }, 400);
+              const id = await answerQuestion(root, ref.id, { title: body.title ?? "", body: body.text ?? "", ifHash: ref.entry });
+              return json({ ok: true, id });
+            }
+            case "proposals-apply": {
+              const path = resolveQueued(root, body.name ?? "");
+              if (!path) return json({ error: `no queued proposals ${body.name}` }, 404);
+              const applied = await applyFile(root, path);
+              markApplied(root, path);
+              return json({ ok: true, applied });
+            }
+            case "proposals-reject":
+              await rejectQueued(root, body.name ?? "", body.why ?? "");
+              break;
             default:
               return json({ error: `unknown op ${body.op}` }, 400);
           }
@@ -243,6 +285,7 @@ export function serve(roots: string[], port: number, opts: ServeOptions = {}) {
           if (err instanceof ConflictError) return json({ error: err.message, conflict: true }, 409);
           if (err instanceof NotFoundError) return json({ error: err.message }, 404);
           if (err instanceof LintRefusedError) return json({ error: err.message, problems: err.problems }, 422);
+          if (err instanceof ProposalsRefusedError) return json({ error: err.message, problems: err.problems }, 422);
           if (err instanceof RefusedError) return json({ error: err.message }, 422);
           throw err;
         }

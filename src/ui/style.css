@@ -352,3 +352,21 @@ a.filelink code { border-bottom: 1px dotted currentColor; }
     max-width: none;
   }
 }
+
+/* Signals: who an entry waits on, the rules' machine checks, themes and suggestions. */
+.badge.waiting { color: var(--panel); background: var(--warn); border-color: var(--warn); font-weight: 600; }
+.badge.chk-pass { color: var(--ok); border-color: currentColor; }
+.badge.chk-fail { color: var(--panel); background: var(--bad); border-color: var(--bad); font-weight: 600; }
+.badge.chk-skipped { color: var(--muted); }
+.badge.theme { color: var(--accent); border-color: currentColor; }
+.badge.into, .badge.suggest { font-style: italic; }
+.badge.tag { color: var(--muted); }
+.badge.tag.cluster { color: var(--accent); }
+.checks { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; }
+.checks.failing strong { color: var(--bad); }
+.banner { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 6px; background: var(--accent-soft); }
+.banner.waiting { border-left-color: var(--warn); }
+.banner.chk-pass { border-left-color: var(--ok); background: var(--panel); }
+.banner.chk-fail { border-left-color: var(--bad); }
+.editor input[type="text"] { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px; font: inherit; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+pre.show { white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 var(--mono); background: var(--code); padding: 12px; border-radius: 6px; }
