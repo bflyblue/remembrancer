@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { mkdir, rename } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { type Entry, type Kind, type ParsedFile, mentions, padId, parseFile } from "./model";
@@ -12,6 +12,29 @@ export interface Project {
   files: ParsedFile[];
   entries: Entry[];
   byId: Map<string, Entry[]>;
+  config: Config;
+  configError: string | null; // why config.json could not be read, if it couldn't
+}
+
+// `.remembrancer/config.json`, optional. `owner`: whose decisions `waiting-on`
+// tracks first (the brief's "waiting on you").
+export interface Config {
+  owner?: string;
+}
+
+export const CONFIG = "config.json";
+
+export function readConfig(root: string): { config: Config; error: string | null } {
+  const path = join(root, DIR, CONFIG);
+  if (!existsSync(path)) return { config: {}, error: null };
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    if (typeof data !== "object" || data === null || Array.isArray(data)) return { config: {}, error: "is not a JSON object" };
+    if (data.owner !== undefined && (typeof data.owner !== "string" || !/^[\w-]+$/.test(data.owner))) return { config: {}, error: `owner must be one word` };
+    return { config: data as Config, error: null };
+  } catch (err) {
+    return { config: {}, error: `is not valid JSON (${(err as Error).message})` };
+  }
 }
 
 export function findRoot(start = process.cwd()): string | null {
@@ -48,9 +71,20 @@ export function isValidFile(rel: string): boolean {
   return (FILES as readonly string[]).includes(rel) || /^archive\/[\w.-]+\.md$/.test(rel);
 }
 
+// A file is read as UTF-8; the lines holding bytes that aren't valid UTF-8 are
+// recorded in `badLines` (they read as U+FFFD), for lint to report.
 export async function readParsed(root: string, rel: string): Promise<ParsedFile> {
   const f = Bun.file(join(root, DIR, rel));
-  return parseFile(rel, (await f.exists()) ? await f.text() : "");
+  if (!(await f.exists())) return parseFile(rel, "");
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  try {
+    return parseFile(rel, new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    const text = new TextDecoder("utf-8").decode(bytes);
+    const parsed = parseFile(rel, text);
+    parsed.badLines = text.split("\n").flatMap((l, i) => (l.includes("\uFFFD") ? [i + 1] : []));
+    return parsed;
+  }
 }
 
 export async function loadProject(root: string): Promise<Project> {
@@ -61,7 +95,8 @@ export async function loadProject(root: string): Promise<Project> {
     if (!e.id) continue;
     byId.set(e.id, [...(byId.get(e.id) ?? []), e]);
   }
-  return { root, name: basename(root), files, entries, byId };
+  const { config, error } = readConfig(root);
+  return { root, name: basename(root), files, entries, byId, config, configError: error };
 }
 
 // The numbers in use in a sequence: every entry heading (archive included)

@@ -111,6 +111,11 @@ export async function doctor(root: string, { fix = false } = {}): Promise<Doctor
   }
 
   const project = await loadProject(root);
+  // Not fixable here: which character a stray byte stood for takes a reader.
+  for (const f of project.files) {
+    for (const line of f.badLines ?? []) problems.push({ file: f.path, id: null, message: `${DIR}/${f.path} line ${line} is not valid UTF-8: retype that character by hand` });
+  }
+
   for (const [id, list] of project.byId) {
     if (list.length > 1) problems.push({ file: list[0].file, id, message: `duplicate id ${id} in ${list.map((e) => e.file).join(", ")}: renumber one by hand` });
   }

@@ -74,11 +74,11 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 
 ## When to act
 
-**Session start.** Run `remembrancer brief` (or read todo, questions, rules and the `consult-when` lines of resources). Tell the user in two or three lines what is next and anything that needs attention. If `scratch.md` holds an old session, move anything durable into todo, questions, answers or rules, then reset scratch to its header and a `# Session YYYY-MM-DD` heading.
+**Session start.** Run `remembrancer brief` (it opens with what waits on the user and the current phase; `remembrancer plan T###` shows a plan's tree, `remembrancer stale` what may be archived) (or read todo, questions, rules and the `consult-when` lines of resources). Tell the user in two or three lines what is next and anything that needs attention. If `scratch.md` holds an old session, move anything durable into todo, questions, answers or rules, then reset scratch to its header and a `# Session YYYY-MM-DD` heading.
 
 **While working.** Update the files as things happen, not in a batch at the end:
 - New work found that is not part of the current task → `remembrancer new T "title" --priority=P2`, with `--after=T###` when order matters. An idea you can't weigh yet → `--inbox` instead of a priority; triage it later with `remembrancer set T### priority=P2 --unset status`.
-- Something needs investigation but should not block you → `remembrancer new Q "title" --context=T###` (or the A### that raised it), say so in one line, and continue.
+- Something needs investigation but should not block you → `remembrancer new Q "title" --context=T###` (or the A### that raised it), say so in one line, and continue. A question only the user can decide → add `--waiting-on <owner>` (the owner in `config.json`; the brief lists these first), tell the user in one line, and carry on with other work.
 - A task is finished → `remembrancer done T### --outcome "…"`. The outcome replaces the body: record the findings that later tasks need (decisions, gotchas, where things live), and leave out narration. A task that is no longer wanted → `remembrancer drop T### --reason "…"`.
 - Progress worth keeping on an open entry → `remembrancer append ID --section History --line "…"`; a changed field → `remembrancer set`.
 - A question is resolved → `remembrancer answer Q### "title" --body - --revisit-if "…"`, with a body holding **Answer:**, **Why:** and **Alternatives considered:**; `revisit-if` is the condition that would make the answer worth revisiting. The command copies the question into **Question**, gives the answer the question's number, and removes the question.
@@ -95,7 +95,7 @@ Read an entry with `remembrancer show ID…`, never grep: it prints the whole en
 - A wave that may outlast the session (a few hours of related work) → keep it in `todo.md` so it survives the reset of scratch:
   1. Pick 2–6 related tasks that together reach one goal. Add the missing ones as T entries. Split any task that won't fit in about an hour.
   2. Order them with `after:` wherever one really depends on another.
-  3. Add a plan task: `remembrancer new T "Plan: <goal>" --priority=P1 --after=T031,T032 --body -`, with `after:` listing every task in the wave. Its body says the goal, the order, and what "done" means for the wave. The children need no extra field: the UI shows the plan among their backlinks.
+  3. Add a plan task: `remembrancer new T "Plan: <goal>" --priority=P1 --after=T031,T032 --done-when="…" [--phase=B] [--tags=…] --body -`, with `after:` listing every task in the wave. Its body says the goal, the order, and what "done" means for the wave. The children need no extra field: the UI shows the plan among their backlinks.
   4. Tell the user the plan in a few lines and let them adjust it before you start.
 - Work the children in order and complete each one as usual. When all are done, `remembrancer done` the plan with an outcome for the whole wave. If the wave stops partway, take the unfinished children out of the plan's `after:` (`remembrancer set`) (they stay in todo), and close the plan with what was reached.
 - Keep one active plan at a time. A new wave starts from a fresh plan task; do not stretch the old one.

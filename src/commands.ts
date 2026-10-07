@@ -268,7 +268,8 @@ export async function completeEntry(root: string, ref: EntryRef, { dropped = fal
   if (reason !== undefined && (!reason.trim() || /\n/.test(reason))) throw new RefusedError("a reason is one non-empty line");
   const updates = { done: today(), ...(dropped ? { dropped: "yes" } : {}) };
   return moveEntry(root, ref, () => "done.md", "# Done\n", (e) => {
-    const u = e.meta.status === "inbox" ? { ...updates, status: "" } : updates;
+    // A finished task leaves the inbox and waits on no one.
+    const u = { ...updates, ...(e.meta.status === "inbox" ? { status: "" } : {}), ...(e.meta["waiting-on"] ? { "waiting-on": "" } : {}) };
     const body = outcome ?? (reason !== undefined ? `Dropped: ${reason.trim()}${e.body ? "\n\n" + e.body : ""}` : undefined);
     return rewrite(e, { updates: u, body });
   });
@@ -379,7 +380,8 @@ export async function answerQuestion(root: string, qid: string | null, o: Answer
     const amends = (o.amends ?? []).map((a) => need(before, a, ["A"]).id!);
     const supersedes = (o.supersedes ?? []).map((a) => need(before, a, ["A"]).id!);
 
-    const { asked: _, ...carried } = q?.meta ?? {};
+    // The question's fields carry over, except when it was asked and whom it waited on.
+    const { asked: _, "waiting-on": __, ...carried } = q?.meta ?? {};
     const meta: Record<string, string> = { answered: today(), ...carried, ...extra };
     if (closes.length) meta.closes = closes.join(", ");
     if (amends.length) meta.amends = amends.join(", ");

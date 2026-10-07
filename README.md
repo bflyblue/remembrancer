@@ -88,6 +88,10 @@ remembrancer decide "title" --body -  # an answer no question asked for
 remembrancer supersede A009 --by A014 # both ends set; a superseded rule is retired (also: amend)
 remembrancer rule R003 activate|retire [--by R012]|challenge --question Q020|reviewed
 remembrancer move T012 --to archive  # into archive/done-2026.md
+remembrancer brief --json    # the brief as data (docs/json.md)
+remembrancer stale [--days N] [--kind T]  # old entries nothing live cites: candidates to archive
+remembrancer waiting [--on WHO | --all]   # entries with waiting-on:, by who (default: the owner)
+remembrancer plan T030       # a plan's tree through after:, with each task's state and blockers
 remembrancer lint            # broken links, bad fields, duplicate IDs, unused numbers, unresolved challenges…
 remembrancer lint --ids      # IDs and links only (fast; `--hook` reads a PostToolUse call on stdin)
 remembrancer show A012 T004  # whole entries, each with its hash (`--json` for data)
@@ -101,6 +105,8 @@ remembrancer guard "git commit -m …"   # exit 2 if the command would publish I
 remembrancer serve [dirs…]   # web UI on http://127.0.0.1:4747 (several projects → a switcher)
 remembrancer serve --host 0.0.0.0 --port 4747   # reachable from other machines (see below)
 ```
+
+Optional `.remembrancer/config.json`: `{"owner": "shaun"}` names whose `waiting-on:` entries the brief lists first.
 
 Every write command takes the lock, checks the entry (against `--if HASH` when given), stamps `touched:`, and lints the result: a write that would add a lint problem exits 2 and changes nothing. Agents should make every change this way; the PostToolUse lint hook catches hand edits and names the command that would have made them.
 

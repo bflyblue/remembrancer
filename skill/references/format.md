@@ -21,6 +21,11 @@ Body in markdown. Keep it short.
 - Any ID written anywhere (in a body or in metadata) is a link in the UI. `remembrancer lint` reports mentions of IDs that do not exist.
 - Dates are always `YYYY-MM-DD`.
 - `touched: YYYY-MM-DD` (optional, any file) is the last day the CLI or the UI changed the entry. The tools set it.
+- Optional on any entry, checked only when present:
+  - `waiting-on: shaun`: one word, who must act before the entry can move. The brief lists the owner's first (see config.json below); `remembrancer waiting` groups them. Answering a question or finishing a task clears it.
+  - `tags: crossing, re-seed`: comma-separated words of `a-z`, `0-9` and `-`. `area:` is read as one more tag.
+  - `phase: B`: free text naming the stage of work a plan belongs to.
+  - `done-when:`: on a plan task, what finishing the wave means.
 - Cite files as a path relative to the project root, in backticks (`src/search/cursor.ts`) or as a markdown link. The UI opens a path that exists, and a markdown link to a missing file shows as broken. Web links are plain `https://…` URLs or markdown links. Write IDs as bare text (`T012`), not as link targets.
 
 ## todo.md
@@ -199,6 +204,14 @@ A file kept only in `.remembrancer/` is not shared when git ignores that folder.
 ## scratch.md
 
 Free-form notes and the plan for one session, under a `# Session YYYY-MM-DD` heading. A plan that may outlast the session goes in todo.md instead, as a `Plan: <goal>` task whose `after:` lists the tasks in the wave. At the start of the next session, move anything worth keeping into the other files, then reset scratch.
+
+## config.json
+
+Optional: `{"owner": "shaun"}`. The owner is whose `waiting-on` entries the brief lists first, under "Waiting on you", and whom `remembrancer waiting` shows by default. `remembrancer lint` reports a file that is not valid JSON.
+
+## Encoding
+
+Every file is UTF-8. `remembrancer lint` and `remembrancer doctor` name any line holding a byte that is not valid UTF-8 (usually a character mangled by a hand edit); retype it by hand.
 
 ## archive/
 

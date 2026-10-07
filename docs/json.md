@@ -52,3 +52,31 @@ chain of `superseded-by` leads, or null.
 ```
 
 `problems` is what is still wrong after any fixes; exit 1 when it is not empty.
+
+## `brief --json`
+
+```json
+{ "project": "iapetus", "visibility": "committed", "owner": "shaun",
+  "waiting": [ { "id": "Q208", "kind": "Q", "file": "questions.md", "title": "…", "meta": { "waiting-on": "shaun" } } ],
+  "waitingOthers": 0,
+  "phase": { "plan": { "id": "T030", … }, "phase": "B", "done": 2, "total": 5, "next": [ … ], "resources": [ … ] },
+  "inbox": 1,
+  "rules": [ { "id": "R003", "title": "…", "status": "active", "form": "property", "tested": true, "checked": null, "reviewed": "2026-10-01" } ],
+  "stale": { "count": 12, "byKind": { "T": 8, "A": 4 } },
+  "checks": null,
+  "todos": [ { "id": "T031", …, "blockedBy": [] } ], "questions": [ { "id": "Q201", …, "age": 3 } ], "resources": [ … ],
+  "attention": { "curate": 4 } }
+```
+
+Entries are `{id, kind, file, title, meta}`. `phase` is null without a plan; `checks` is null until rule checks run.
+`rules` holds the active, challenged and proposed rules.
+
+## `stale --json`, `waiting --json`, `plan T### --json`
+
+```json
+{ "count": 1, "entries": [ { "id": "A004", "kind": "A", "file": "answers.md", "title": "…", "date": "2026-01-01", "age": 279 } ] }
+{ "on": "shaun", "groups": { "shaun": [ { "id": "Q208", "kind": "Q", "file": "questions.md", "title": "…" } ] } }
+{ "id": "T030", "title": "…", "state": "open", "blockers": [], "children": [ { "id": "T031", "state": "done", …, "children": [] } ] }
+```
+
+A plan node marked `"cycle": true` is its own ancestor and is not expanded again.

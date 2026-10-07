@@ -108,7 +108,13 @@ const ENUMS: Record<string, Record<string, string[]>> = {
   },
 };
 
-const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised", "touched"];
+// Keys whose values have a shape, checked only when present.
+const FORMATS: Record<string, [RegExp, string]> = {
+  "waiting-on": [/^[\w-]+$/, "one word: who the entry waits on"],
+  tags: [/^[a-z0-9-]+(\s*,\s*[a-z0-9-]+)*$/, "comma-separated words of a-z, 0-9 and -"],
+};
+
+export const DATE_KEYS = ["added", "done", "asked", "answered", "reviewed", "revised", "touched"];
 
 // The file whose rules an entry follows: an archive file keeps its stem's.
 export function baseFile(file: string): string {
@@ -128,6 +134,9 @@ export function valueProblems(file: string, meta: Record<string, string>): strin
   const out: string[] = [];
   for (const [key, allowed] of Object.entries({ ...ENUMS["*"], ...(ENUMS[baseFile(file)] ?? {}) })) {
     if (meta[key] && !allowed.includes(meta[key])) out.push(`${key}: "${meta[key]}" is not one of ${allowed.join("|")}`);
+  }
+  for (const [key, [re, what]] of Object.entries(FORMATS)) {
+    if (meta[key] && !re.test(meta[key])) out.push(`${key}: "${meta[key]}" is not ${what}`);
   }
   for (const key of DATE_KEYS) {
     if (meta[key] && daysSince(meta[key]) === null) out.push(`${key}: "${meta[key]}" is not YYYY-MM-DD`);
@@ -175,6 +184,12 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
   const problems: Problem[] = [];
   const report = (e: Entry | { file: string; id: string | null }, message: string) =>
     problems.push({ file: e.file, id: e.id, message });
+
+  for (const f of project.files) {
+    for (const line of f.badLines ?? []) {
+      problems.push({ file: f.path, id: null, message: `line ${line} is not valid UTF-8 (a stray byte, shown as \uFFFD): retype that character by hand` });
+    }
+  }
 
   for (const [id, list] of project.byId) {
     if (list.length > 1) report(list[0], `duplicate id ${id} in ${list.map((e) => e.file).join(", ")}`);
@@ -246,6 +261,8 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
     }
   }
   if (ids) return problems;
+
+  if (project.configError) problems.push({ file: "config.json", id: null, message: `config.json ${project.configError}` });
 
   const openQuestionText = inFile(project, "questions.md").map((q) => q.raw).join("\n");
   for (const r of inFile(project, "rules.md")) {

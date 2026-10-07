@@ -26,6 +26,7 @@ export interface ParsedFile {
   hash: string;
   preamble: string;
   entries: Entry[];
+  badLines?: number[]; // 1-based lines that were not valid UTF-8 when read
 }
 
 export const ID_RE = /\b([TQARK])(\d{3,})\b/g;

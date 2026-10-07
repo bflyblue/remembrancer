@@ -3,7 +3,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { brief } from "./brief";
+import { briefData, renderBrief } from "./brief";
+import { formatPlan, planTree, stale, waiting } from "./signals";
 import { guard } from "./guard";
 import { LintRefusedError, type RuleAction, amend, answerQuestion, appendLine, archiveEntry, ruleAction, supersede, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
@@ -22,9 +23,19 @@ usage:
                                      print the next free ID (Q and A share one sequence; A is for
                                      a decision with no question). --claim also appends a stub
                                      entry for it under a lock, so no one else gets the number
-  remembrancer brief [--hook]        session-start summary, including whether git ignores ${DIR}/
-                                     (and so whether IDs may appear in commits). --hook: print
-                                     nothing if there is no ${DIR}/
+  remembrancer brief [--hook] [--json]
+                                     session-start summary: what waits on the owner, the current
+                                     phase, what needs a decision, then todos, questions, rules
+                                     and resources; also whether git ignores ${DIR}/ (and so
+                                     whether IDs may appear in commits). --hook: print nothing
+                                     if there is no ${DIR}/
+  remembrancer stale [--days N] [--kind T|Q|A|R|K]
+                                     entries unchanged past their kind's threshold (or N days)
+                                     that no open todo, open question or rule in force cites
+  remembrancer waiting [--on WHO | --all]
+                                     entries with waiting-on:, by who (default: config.json's owner)
+  remembrancer plan T###             the tree a task opens through after:, each with its state
+                                     (open, done, dropped) and open blockers; cycles marked
   remembrancer new T|Q|R|K "title" [--key=value]... [--body TEXT|- | --body-file F] [--inbox]
                                      claim the next ID and write the whole entry in one locked
                                      step. T needs --priority=P1|P2|P3 unless --inbox (status:
@@ -120,6 +131,7 @@ const HAND_EDIT_HINT: Record<string, string> = {
 const VALUED = new Set([
   "--body", "--body-file", "--outcome", "--outcome-file", "--reason", "--if", "--title", "--section", "--line", "--unset",
   "--revisit-if", "--closes", "--amends", "--supersedes", "--by", "--question", "--to",
+  "--waiting-on", "--days", "--kind", "--on",
 ]);
 
 function parseArgs(args: string[]) {
@@ -208,6 +220,8 @@ async function main(argv: string[]) {
       if (kind === "A") fail(2, "a decision with no question: remembrancer next A --claim TITLE, then fill it in (answers get their own command later)", json);
       if (!["T", "Q", "R", "K"].includes(kind) || !title) fail(2, 'usage: remembrancer new T|Q|R|K "title" [--key=value]... [--body TEXT|- | --body-file F] [--inbox]', json);
       const root = requireRoot();
+      const waitingOn = opt("--waiting-on")[0];
+      if (waitingOn !== undefined) fields["waiting-on"] = waitingOn;
       const id = await newEntry(root, kind as Kind, title, { fields, body: (await readText(opt, "body", json)) ?? "", inbox: has("--inbox") });
       await reportWrite(root, id, json, id);
       return;
@@ -317,13 +331,57 @@ async function main(argv: string[]) {
       const moved = await archiveEntry(root, refTo(project, locate(project, id)));
       return reportWrite(root, id, json, `${id} → ${moved}`);
     }
+    case "stale": {
+      const { opt } = parseArgs(args);
+      const days = opt("--days")[0];
+      const kind = opt("--kind")[0]?.toUpperCase();
+      if ((days !== undefined && !/^\d+$/.test(days)) || (kind && !["T", "Q", "A", "R", "K"].includes(kind))) {
+        fail(2, "usage: remembrancer stale [--days N] [--kind T|Q|A|R|K]", json);
+      }
+      const list = stale(await loadProject(requireRoot()), { days: days === undefined ? undefined : parseInt(days, 10), kind: kind as Kind | undefined });
+      if (json) console.log(JSON.stringify({ count: list.length, entries: list }, null, 2));
+      else if (!list.length) console.log("nothing stale");
+      else for (const s of list) console.log(`${s.id} ${s.age === null ? "undated" : `${s.age}d`.padStart(5)}  ${s.title}  (${s.file})`);
+      return;
+    }
+    case "waiting": {
+      const { opt, has } = parseArgs(args);
+      const project = await loadProject(requireRoot());
+      const on = has("--all") ? undefined : (opt("--on")[0] ?? project.config.owner);
+      const groups = waiting(project, on);
+      if (json) {
+        console.log(JSON.stringify({ on: on ?? null, groups: Object.fromEntries([...groups].map(([who, l]) => [who, l.map((e) => ({ id: e.id, kind: e.kind, file: e.file, title: e.title }))])) }, null, 2));
+        return;
+      }
+      if (!groups.size) console.log(on ? `nothing waits on ${on}` : "nothing waits on anyone");
+      for (const [who, list] of groups) {
+        console.log(`${who}:`);
+        for (const e of list) console.log(`  ${e.id} ${e.title}  (${e.file})`);
+      }
+      return;
+    }
+    case "plan": {
+      const id = (args.find((a) => !a.startsWith("--")) ?? "").toUpperCase();
+      if (!id) fail(2, "usage: remembrancer plan T###", json);
+      const project = await loadProject(requireRoot());
+      locate(project, id);
+      const tree = planTree(project, id);
+      if (json) console.log(JSON.stringify(tree, null, 2));
+      else {
+        console.log(formatPlan(tree).join("\n"));
+        const doneWhen = project.byId.get(id)![0].meta["done-when"];
+        if (doneWhen) console.log(`done when: ${doneWhen}`);
+      }
+      return;
+    }
     case "brief": {
       const root = findRoot();
       if (!root) {
         if (flag("--hook")) return;
         requireRoot();
       }
-      console.log(brief(await loadProject(root!), new Date(), visibility(root!)));
+      const data = briefData(await loadProject(root!), new Date(), visibility(root!));
+      console.log(json ? JSON.stringify(data, null, 2) : renderBrief(data));
       return;
     }
     case "show": {
