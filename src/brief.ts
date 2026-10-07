@@ -46,7 +46,7 @@ export interface BriefData {
   phase: { plan: BriefEntry; phase: string | null; done: number; total: number; next: BriefEntry[]; resources: BriefEntry[] } | null;
   inbox: number;
   finishedPlans: BriefEntry[]; // open plans with every child done: ready to close
-  rules: { id: string; title: string; status: string; form: string | null; tested: boolean; checked: string | null; reviewed: string | null }[];
+  rules: { id: string; title: string; status: string; form: string | null; tested: boolean; checked: string | null; reviewed: string | null; check: { status: string; at: string; message: string } | null }[];
   stale: { count: number; byKind: Record<string, number>; days: Record<string, number> };
   checks: { pass: number; fail: number; unrunnable: number; notRun: number }; // the active rules' machine checks, by their last run
   todos: (BriefEntry & { blockedBy: string[] })[]; // open and triaged, in order
@@ -74,6 +74,7 @@ export function briefData(project: Project, now = new Date(), visibility: "priva
   const counts: Record<string, number> = {};
   for (const a of attention(project, now)) counts[a.kind] = (counts[a.kind] ?? 0) + 1;
   const todos = openTodos(project);
+  const checksLog = readChecksLog(project.root);
 
   return {
     project: project.name,
@@ -101,9 +102,10 @@ export function briefData(project: Project, now = new Date(), visibility: "priva
         tested: !!r.meta["enforced-by"],
         checked: r.meta.checked ?? null,
         reviewed: r.meta.reviewed ?? null,
+        check: checksLog[r.id!] ?? null, // its last machine check (remembrancer check)
       })),
     stale: { count: staleList.length, byKind, days: staleDays(project) },
-    checks: checkCounts(project, readChecksLog(project.root)),
+    checks: checkCounts(project, checksLog),
     todos: todos.filter((t) => t.meta.status !== "inbox").map((t) => ({ ...summary(t), blockedBy: t.blockedBy })),
     questions: inFile(project, "questions.md").map((q) => ({ ...summary(q), age: daysSince(q.meta.asked, now) })),
     resources: resources.map(summary),

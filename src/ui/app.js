@@ -482,6 +482,12 @@ function signals() {
   ].filter(([, list]) => list.length);
 }
 
+// What the Attention tab lists: one count for its badge and the overview.
+function attentionCount() {
+  const d = state.data;
+  return d.attention.length + d.problems.length + signals().reduce((s, [, l]) => s + l.length, 0);
+}
+
 function renderAttentionList(ul) {
   const { attention, problems } = state.data;
   const sig = signals();
@@ -772,7 +778,7 @@ function overview() {
     h("p", {}, `${count("todo.md")} todo · ${plural(count("questions.md"), "open question")} · ${plural(count("rules.md"), "rule")} · ${count("done.md")} done · ${plural(count("answers.md"), "answer")} · ${plural(count("resources.md"), "resource")}`),
     d.brief?.waiting?.length ? h("p", { class: "banner waiting" }, `Waiting on ${d.brief.owner || "someone"}: `, ...d.brief.waiting.flatMap((w, i) => [i ? ", " : "", idLink(w.id)])) : null,
     checksSummary(),
-    h("p", {}, d.attention.length || d.problems.length ? `${d.attention.length + d.problems.length} items need attention.` : "Nothing needs attention."),
+    h("p", {}, attentionCount() ? `${plural(attentionCount(), "item")} need${attentionCount() === 1 ? "s" : ""} attention.` : "Nothing needs attention."),
     h("p", { class: "muted keys" }, "Keys: / search · j/k move · Enter open · e edit · Esc back"));
 }
 
@@ -784,7 +790,7 @@ function renderTabs() {
   const d = state.data;
   for (const t of TABS) {
     let n;
-    if (t.key === "attention") n = d.attention.length + d.problems.length + signals().reduce((s, [, l]) => s + l.length, 0);
+    if (t.key === "attention") n = attentionCount();
     else if (t.key === "queue") n = (d.queue || []).length;
     else if (t.key === "archive") n = d.entries.filter((e) => e.file.startsWith("archive/")).length;
     else if (t.key !== "scratch") n = d.entries.filter((e) => t.files.includes(e.file)).length;

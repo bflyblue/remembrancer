@@ -1,0 +1,15 @@
+{
+  "name": "remembrancer",
+  "version": "0.1.0",
+  "description": "Per-project working memory in .remembrancer/: the brief, the /rmb pane and commands, lint after edits, the commit guard, and edits only through the CLI",
+  "author": { "name": "Shaun Sharples" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cli": {
+      "type": "string",
+      "title": "Remembrancer command",
+      "description": "How to run the remembrancer CLI: its name on PATH, or e.g. bun ~/devel/personal/remembrancer/src/cli.ts",
+      "default": "remembrancer"
+    }
+  }
+}

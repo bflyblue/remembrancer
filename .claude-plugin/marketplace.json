@@ -1,0 +1,12 @@
+{
+  "name": "remembrancer",
+  "owner": { "name": "Shaun Sharples" },
+  "description": "remembrancer: per-project working memory for you and your agent",
+  "plugins": [
+    {
+      "name": "remembrancer",
+      "source": "./integrations/claude-code",
+      "description": "Per-project working memory in .remembrancer/: the brief, the /rmb pane and commands, lint after edits, the commit guard, and edits only through the CLI"
+    }
+  ]
+}

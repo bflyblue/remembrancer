@@ -1,0 +1,3 @@
+# bun test runs the CLI's tests; the Claude Code mod's run under `claude plugin test integrations/claude-code`.
+[test]
+root = "./test"

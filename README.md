@@ -63,6 +63,16 @@ ln -s ~/devel/personal/remembrancer/integrations/pi/remembrancer.ts ~/.pi/agent/
 ln -s ~/devel/personal/remembrancer/skill ~/.pi/agent/skills/remembrancer
 ```
 
+For Claude Code there is also a mod, `integrations/claude-code/`, that does all three plus an `/rmb` pane (what waits on you, the plan's next tasks, the rules with their checks, search), `/rmb waiting | done T### | search …`, and a refusal of direct edits under `.remembrancer/` that names the command to use. Mods are early access. Try it for a session, or install it from this checkout (then drop the three settings hooks above):
+
+```sh
+claude --plugin-dir ~/devel/personal/remembrancer/integrations/claude-code
+# or, to keep it:
+claude plugin marketplace add ~/devel/personal/remembrancer && claude plugin install remembrancer@remembrancer
+```
+
+See [integrations/claude-code/README.md](integrations/claude-code/README.md).
+
 ## Use
 
 ```sh
