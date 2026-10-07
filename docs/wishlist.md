@@ -261,3 +261,6 @@ They are early access, and the API may change between releases. A remembrancer m
 
 To be built late, after the commands settle, since it depends on their JSON and on an API that may change. The built-in
 mods' source (`mods/diff` especially) is the reference.
+6. **Insight mode is not benchmarked** (2026-10-07). Gather is scored against gold files, because it is meant for cheap
+   models whose quality must be measured. Insight runs use a strong model (Fable), and Shaun's review of each queued run
+   is the check; its tokens are better spent on extracting knowledge than on building a gold standard for condensation.
