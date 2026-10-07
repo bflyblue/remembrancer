@@ -100,3 +100,11 @@ The input format is `schema/proposals.json`, each action `schema/action.json`.
 
 Hits are in BM25 order (higher `score` is better). A hit marked `via` was pulled in by that hit: the end of its
 supersession chain, or an entry it closes. `neighbours` appears with `--neighbours`.
+
+## `anchors [--unused] --json`
+
+```json
+{ "anchors": [ { "name": "capture-entry-rows", "defined": ["lib/Iapetus/Capture.hs:120"], "citedBy": ["A178"] } ] }
+```
+
+`defined` lists every place the name is defined (more than one is a clash to rename).

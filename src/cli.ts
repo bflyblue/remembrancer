@@ -7,6 +7,7 @@ import { briefData, renderBrief } from "./brief";
 import { formatPlan, planTree, stale, waiting } from "./signals";
 import { LOG, ProposalsRefusedError, apply } from "./proposals";
 import { formatHits, search } from "./search";
+import { anchorCitations, anchorDefinitions, repoOf } from "./anchors";
 import { guard } from "./guard";
 import { LintRefusedError, type RuleAction, amend, answerQuestion, appendLine, archiveEntry, ruleAction, supersede, claimId, completeEntry, editEntry, formatShown, locate, newEntry, refTo, setMeta, show } from "./commands";
 import { doctor, init } from "./init";
@@ -83,6 +84,10 @@ usage:
                                      them; FTS5 syntax ("a phrase", AND, OR, NOT, pre*) passes
                                      through. --all: archive/ and kb/ too. --neighbours: each hit's
                                      links in and out. --list: titles only
+  remembrancer anchors [--unused] [--json]
+                                     each anchor defined in the code (a comment holding
+                                     "anchor: a-name"), where, and the entries citing it
+                                     (anchor:a-name). --unused: only those no entry cites
   remembrancer show ID... [--links] [--json]
                                      print whole entries, each with its hash (the entry's version).
                                      --links: what each links to, what links to it, and where a
@@ -418,6 +423,22 @@ async function main(argv: string[]) {
         neighbours: has("--neighbours"),
       });
       console.log(json ? JSON.stringify({ query, hits }, null, 2) : formatHits(hits, { list: has("--list") }));
+      return;
+    }
+    case "anchors": {
+      const root = requireRoot();
+      const project = await loadProject(root);
+      const defs = anchorDefinitions(repoOf(root));
+      const cites = anchorCitations(project);
+      const names = [...new Set(defs.map((d) => d.name))].sort().filter((n) => !flag("--unused") || !cites.has(n));
+      const rows = names.map((name) => ({
+        name,
+        defined: defs.filter((d) => d.name === name).map((d) => `${d.file}:${d.line}`),
+        citedBy: (cites.get(name) ?? []).map((e) => e.id!),
+      }));
+      if (json) console.log(JSON.stringify({ anchors: rows }, null, 2));
+      else if (!rows.length) console.log(flag("--unused") ? "every anchor is cited" : "no anchors: put `anchor: a-name` in a code comment, and cite it as anchor:a-name");
+      else for (const r of rows) console.log(`${r.name}  ${r.defined.join(", ")}${r.defined.length > 1 ? "  (defined twice: rename one)" : ""}  ← ${r.citedBy.join(", ") || "no entry"}`);
       return;
     }
     case "brief": {

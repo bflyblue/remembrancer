@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { drift } from "./anchors";
 import { type Entry, type Kind, daysSince, mentions, padId } from "./model";
 import { type Project, usedNumbers } from "./project";
 
@@ -275,9 +276,8 @@ export function lint(project: Project, { ids = false } = {}): Problem[] {
       report(r, `challenged, but no open question mentions ${r.id}`);
     }
   }
-  for (const k of inFile(project, "resources.md")) {
-    const link = k.meta.link ?? "";
-    if (link && !/^([a-z][a-z0-9+.-]*:|www\.)/i.test(link) && !existsSync(join(project.root, link))) report(k, `link ${link} does not exist`);
-  }
+  // References to the code: cited paths (and resources' links) that name nothing,
+  // and cited anchors no tracked file defines.
+  for (const d of drift(project)) report(d.entry, d.message);
   return problems;
 }

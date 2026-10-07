@@ -26,7 +26,8 @@ Body in markdown. Keep it short.
   - `tags: crossing, re-seed`: comma-separated words of `a-z`, `0-9` and `-`. `area:` is read as one more tag.
   - `phase: B`: free text naming the stage of work a plan belongs to.
   - `done-when:`: on a plan task, what finishing the wave means.
-- Cite files as a path relative to the project root, in backticks (`src/search/cursor.ts`) or as a markdown link. The UI opens a path that exists, and a markdown link to a missing file shows as broken. Web links are plain `https://…` URLs or markdown links. Write IDs as bare text (`T012`), not as link targets.
+- Cite files as a path relative to the project root, in backticks (`src/search/cursor.ts`) or as a markdown link. The UI opens a path that exists, and a markdown link to a missing file shows as broken. `remembrancer lint` reports a cited path that names nothing: one in backticks, a markdown link, or a resource's `link:`, tried from the entry's file, the project root and the git work tree. A bare name (`Burn.hs`) counts when exactly one tracked file ends with it. Archived entries are not checked.
+- Where the code will move, cite an **anchor** instead of a path: put `anchor: capture-entry-rows` (lowercase words joined by dashes, last on the line) in a comment beside the code, and cite it as `anchor:capture-entry-rows` (no space). Lint reports a cited anchor that no tracked file defines; `remembrancer anchors [--unused]` lists the definitions and who cites them. Anchors are names, not IDs, so they are safe in the code of a project whose `.remembrancer/` is private. Web links are plain `https://…` URLs or markdown links. Write IDs as bare text (`T012`), not as link targets.
 
 ## todo.md
 
