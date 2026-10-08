@@ -23,6 +23,10 @@ const NARROW = matchMedia("(max-width: 760px)");
 
 const FORM_LABELS ={ invariant: "invariants", property: "properties", heuristic: "heuristics" };
 
+// How the todo tab lays out open tasks. A task listed in another open task's
+// `after:` is nested under it, as in the CLI's plan tree: a plan's children.
+const TODO_MODES = { flat: "flat", top: "top level", tree: "tree" };
+
 const FILTERS = {
   todo: { priority: ["P1", "P2", "P3"] },
   rules: {
@@ -45,6 +49,8 @@ const state = {
   hits: null, // the search endpoint's hits for state.query: [{ id, via, score }], or null while none
   queueSel: null, // the queued proposals file shown, by name
   queueShow: null, // { name, show, proposals } from /proposals?name=
+  todoMode: (() => { try { return localStorage.getItem("todoMode"); } catch { return null; } })() || "flat",
+  depths: new Map(), // entry key -> indent in the todo tree, set by todoTree
 };
 
 // ---------- helpers ----------
@@ -353,10 +359,57 @@ function entriesForTab() {
     const order = new Map(d.todoOrder.map((t, i) => [t.id, i]));
     list = [...list].sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9));
   }
-  for (const [key, value] of Object.entries(state.filters[state.tab] || {})) {
-    if (value) list = list.filter((e) => e.meta[key] === value);
+  const keep = (e) => Object.entries(state.filters[state.tab] || {}).every(([key, value]) => !value || e.meta[key] === value);
+  if (state.tab === "todo" && TODO_MODES[state.todoMode] && state.todoMode !== "flat") return todoTree(list, keep);
+  return list.filter(keep);
+}
+
+// The open tasks under each open task: its open `after:` tasks, in `after:` order.
+function subtasksById() {
+  return new Map(state.data.todoOrder.map((t) => [t.id, t.blockedBy]));
+}
+
+// The open tasks in todo order: the top-level ones (nested under no open
+// task), each followed in tree mode by its subtasks, indented. A task under
+// several parents shows under the first one reached; a cycle with nothing
+// above it starts at its first task. Filters pick the top-level tasks and
+// their subtasks come along.
+function todoTree(list, keep) {
+  const byId = new Map(list.map((e) => [e.id, e]));
+  const kids = subtasksById();
+  const nested = new Set([...kids.values()].flat());
+  const out = [];
+  const seen = new Set();
+  state.depths = new Map();
+  // Top-level mode still walks the subtasks, unlisted, so a cycle surfaces once.
+  const walk = (e, depth) => {
+    if (seen.has(e.id)) return;
+    seen.add(e.id);
+    if (depth === 0 || state.todoMode === "tree") {
+      out.push(e);
+      state.depths.set(keyOf(e), depth);
+    }
+    for (const id of kids.get(e.id) || []) if (byId.has(id)) walk(byId.get(id), depth + 1);
+  };
+  for (const e of list) if (!nested.has(e.id) && keep(e)) walk(e, 0);
+  // Tasks not reached yet: in a cycle (it starts at its first task in todo
+  // order), or under a parent the filters hid.
+  for (const e of list) if (!seen.has(e.id) && keep(e)) walk(e, 0);
+  return out;
+}
+
+// How many open tasks sit under a task, at any depth.
+function subtaskCount(e) {
+  const kids = subtasksById();
+  const seen = new Set([e.id]);
+  const stack = [...(kids.get(e.id) || [])];
+  while (stack.length) {
+    const id = stack.pop();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    stack.push(...(kids.get(id) || []));
   }
-  return list;
+  return seen.size - 1;
 }
 
 function renderFilters() {
@@ -367,6 +420,23 @@ function renderFilters() {
     return;
   }
   if (state.tab === "rules") box.append(checksSummary());
+  if (state.tab === "todo") {
+    const group = h("span", { class: "chipgroup", role: "group", "aria-label": "Layout" });
+    for (const [mode, label] of Object.entries(TODO_MODES)) {
+      group.append(
+        h("button", {
+          class: `chip ${state.todoMode === mode ? "on" : ""}`,
+          "aria-pressed": String(state.todoMode === mode),
+          onclick: () => {
+            state.todoMode = mode;
+            try { localStorage.setItem("todoMode", mode); } catch {}
+            render();
+          },
+        }, label),
+      );
+    }
+    box.append(group);
+  }
   const groups = FILTERS[state.tab];
   if (!groups) return;
   const current = (state.filters[state.tab] ||= {});
@@ -406,7 +476,10 @@ function badges(e) {
   const via = state.query && state.hits?.find((x) => x.id === e.id)?.via;
   if (via) out.push(h("span", { class: "badge into", title: "the current entry for a hit" }, `via ${via}`));
   const blocked = state.data.todoOrder.find((t) => t.id === e.id)?.blockedBy || [];
-  if (e.file === "todo.md" && blocked.length) out.push(h("span", { class: "badge blocked" }, `after ${blocked.join(", ")}`));
+  // In tree mode the subtasks show beneath; in top-level mode, how many are hidden.
+  const mode = state.tab === "todo" && !state.query ? state.todoMode : "flat";
+  if (e.file === "todo.md" && blocked.length && mode === "flat") out.push(h("span", { class: "badge blocked" }, `after ${blocked.join(", ")}`));
+  if (e.file === "todo.md" && mode === "top" && subtaskCount(e)) out.push(h("span", { class: "badge", title: "open tasks under it (tree shows them)" }, `+${plural(subtaskCount(e), "subtask")}`));
   if (state.query) out.push(h("span", { class: "badge file" }, e.file.replace(/\.md$/, "")));
   return out;
 }
@@ -437,15 +510,19 @@ function checksSummary() {
 }
 
 function listItem(e) {
-  return h(
+  const depth = state.tab === "todo" && !state.query && state.todoMode === "tree" ? state.depths.get(keyOf(e)) || 0 : 0;
+  const li = h(
     "li",
     {
-      class: keyOf(e) === state.selected ? "sel" : "",
+      class: `${keyOf(e) === state.selected ? "sel" : ""} ${depth ? "sub" : ""}`,
       onclick: () => select(e),
     },
     h("div", { class: "row1" }, h("span", { class: "id" }, e.id || "?"), h("span", { class: "title" }, e.title)),
     h("div", { class: "row2" }, ...badges(e), h("span", { class: "age" }, ageOf(e))),
   );
+  // Through the CSSOM: the page's CSP refuses style attributes.
+  if (depth) li.style.setProperty("--depth", depth);
+  return li;
 }
 
 function renderList() {
@@ -588,6 +665,28 @@ function backlinks(e) {
   if (pair && !refs.includes(pair)) list.append(h("li", {}, idLink(pair.id), ` ${pair.title}`, h("span", { class: "muted" }, e.kind === "Q" ? "  answer" : "  question")));
   for (const r of refs) list.append(h("li", {}, idLink(r.id || "?"), ` ${r.title}`, h("span", { class: "muted" }, `  ${r.file}`)));
   return h("section", { class: "related" }, h("h3", {}, "Referenced by"), list);
+}
+
+// A task's place in the plan tree: the open tasks whose `after:` lists it,
+// and the tasks its own `after:` lists, open, done or dropped.
+function planLinks(e) {
+  if (e.kind !== "T") return null;
+  const mentions = (text) => (text || "").match(ID_RE) || [];
+  const parents = state.data.entries.filter((x) => x.file === "todo.md" && mentions(x.meta.after).includes(e.id));
+  const children = mentions(e.meta.after).filter((id) => id[0] === "T");
+  if (!parents.length && !children.length) return null;
+  const stateOf = (x) => !x ? "missing" : x.file === "todo.md" ? "open" : x.meta.dropped === "yes" ? "dropped" : "done";
+  const row = (id, note) => {
+    const x = findById(id);
+    return h("li", { class: `st-${stateOf(x)}` }, idLink(id), ` ${x?.title || ""}`, h("span", { class: "muted" }, `  ${note || stateOf(x)}`));
+  };
+  const box = h("section", { class: "related plan" }, h("h3", {}, "Plan"));
+  if (parents.length) box.append(h("p", { class: "muted" }, "Part of"), h("ul", { class: "backlinks" }, parents.map((p) => row(p.id, p.meta.priority))));
+  if (children.length) {
+    const finished = children.filter((id) => ["done", "dropped"].includes(stateOf(findById(id)))).length;
+    box.append(h("p", { class: "muted" }, `Subtasks · ${finished} of ${children.length} finished`), h("ul", { class: "backlinks" }, children.map((id) => row(id))));
+  }
+  return box;
 }
 
 function supersedesChain(e) {
@@ -762,6 +861,9 @@ function renderDetail() {
   const chk = e.kind === "R" && checkOf(e);
   if (chk) pane.append(h("p", { class: `banner chk-${chk.status}` }, `Machine check: ${chk.status === "pass" ? "passed" : chk.status === "fail" ? "FAILED" : "not run"}, ${chk.at.replace("T", " ")}: ${chk.message}`));
   pane.append(actions(e), metaTable(e));
+  // Above the body, so a long plan does not push its tasks out of sight.
+  const plan = planLinks(e);
+  if (plan) pane.append(plan);
   const body = h("article", { class: "md" });
   body.innerHTML = e.html;
   pane.append(fixLinks(body, e.links));

@@ -188,6 +188,10 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .list li.empty { color: var(--muted); cursor: default; }
 .list li.problem .title { color: var(--bad); }
+/* A subtask in the todo tree: its rows step in; the li's own padding (and safe area) stays. */
+.list li.sub .row1, .list li.sub .row2 { margin-left: calc((var(--depth, 1) - 1) * 16px); }
+.list li.sub .row2 { padding-left: 18px; }
+.list li.sub .row1::before { content: "↳"; color: var(--muted); margin-right: -2px; }
 .row1 { display: flex; gap: 8px; align-items: baseline; }
 .row1 .title { overflow: hidden; text-overflow: ellipsis; }
 .row2 { display: flex; gap: 6px; align-items: center; margin-top: 2px; flex-wrap: wrap; }
@@ -262,6 +266,10 @@ a.filelink code { border-bottom: 1px dotted currentColor; }
 .related p { margin: 4px 0; }
 .backlinks { list-style: none; margin: 0; padding: 0; }
 .backlinks li { padding: 3px 0; }
+.related.plan { margin: 12px 0 16px; }
+.related.plan p { margin: 8px 0 2px; font-size: 13px; }
+.related.plan li.st-done, .related.plan li.st-dropped { opacity: .6; }
+.related.plan li.st-dropped { text-decoration: line-through; }
 
 .editor textarea {
   width: 100%;
